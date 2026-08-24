@@ -34,7 +34,7 @@ interface DepotAnalytics {
   usage_percentage: number
 }
 
-const API_URL = 'https://monitoring-system-backend.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL
 
 function DepotMonitoring() {
   const [depots, setDepots] = useState<Depot[]>([])

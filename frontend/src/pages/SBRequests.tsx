@@ -30,7 +30,7 @@ interface SBRequestAnalytics {
   oldest_pending_requests: OldestPendingRequest[]
 }
 
-const API_URL = 'https://monitoring-system-backend.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL
 
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
 const STATUSES = ['Pending', 'In Progress', 'For Testing', 'For Deployment', 'Resolved', 'Cancelled']

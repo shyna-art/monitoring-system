@@ -62,7 +62,7 @@
     attention_required: string[]
   }
 
-  const API_URL = 'https://monitoring-system-backend.onrender.com'
+ const API_URL = import.meta.env.VITE_API_URL
 
   function Dashboard() {
     const [data, setData] = useState<DashboardData | null>(null)
