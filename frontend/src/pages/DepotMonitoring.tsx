@@ -78,6 +78,9 @@ function DepotMonitoring() {
     setDepotAnalytics(await res.json())
   }
 
+const [filterStartDate, setFilterStartDate] = useState('')
+const [filterEndDate, setFilterEndDate] = useState('')
+
   useEffect(() => {
     fetchDepots()
     fetchDepotReasons()
@@ -157,6 +160,17 @@ function DepotMonitoring() {
     await fetchDepotMonitoringRecords()
     await fetchDepotAnalytics()
   }
+
+const filteredRecords = depotMonitoringRecords.filter((rec) => {
+  if (filterStartDate && rec.monitoring_date < filterStartDate) return false
+  if (filterEndDate && rec.monitoring_date > filterEndDate) return false
+  return true
+})
+
+const clearFilters = () => {
+  setFilterStartDate('')
+  setFilterEndDate('')
+}
 
   return (
     <div className="flex-1 p-8">
@@ -246,12 +260,35 @@ function DepotMonitoring() {
         </Card>
 
         <Card>
-          <CardHeader title={`Recent Records (${depotMonitoringRecords.length})`} />
-          <CardBody className="!p-0">
-            <Table>
-              <TableHead columns={['Depot', 'Date', 'Status', 'Reason', 'Remarks', '']} />
-              <tbody>
-                {depotMonitoringRecords.map((rec) => (
+  <CardHeader title={`Recent Records (${filteredRecords.length} of ${depotMonitoringRecords.length})`} />
+  <CardBody className="!p-4 border-b border-slate-100">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-medium text-slate-600">Date Range:</span>
+      <input
+        type="date"
+        value={filterStartDate}
+        onChange={(e) => setFilterStartDate(e.target.value)}
+        className={inputClass}
+      />
+      <span className="text-slate-400 text-xs">to</span>
+      <input
+        type="date"
+        value={filterEndDate}
+        onChange={(e) => setFilterEndDate(e.target.value)}
+        className={inputClass}
+      />
+      {(filterStartDate || filterEndDate) && (
+        <button onClick={clearFilters} className="text-xs text-blue-600 hover:text-blue-700 ml-2">
+          Clear
+        </button>
+      )}
+    </div>
+  </CardBody>
+  <CardBody className="!p-0">
+    <Table>
+      <TableHead columns={['Depot', 'Date', 'Status', 'Reason', 'Remarks', '']} />
+      <tbody>
+        {filteredRecords.map((rec) => (
                   <tr key={rec.id} className="border-b border-slate-50 last:border-0 align-top">
                     <td className="px-5 py-3.5 text-slate-800">{rec.depots?.name ?? 'Unknown Depot'}</td>
 
