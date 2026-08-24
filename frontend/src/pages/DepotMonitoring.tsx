@@ -34,7 +34,7 @@ interface DepotAnalytics {
   usage_percentage: number
 }
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = 'https://monitoring-system-backend.onrender.com'
 
 function DepotMonitoring() {
   const [depots, setDepots] = useState<Depot[]>([])

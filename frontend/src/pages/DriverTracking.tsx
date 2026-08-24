@@ -66,7 +66,7 @@ interface AnalyticsData {
   top_truckers_by_non_usage_rate: TruckerStat[]
 }
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = 'https://monitoring-system-backend.onrender.com'
 
 function DriverTracking() {
   const [depots, setDepots] = useState<Depot[]>([])

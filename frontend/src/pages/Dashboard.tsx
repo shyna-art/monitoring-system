@@ -62,7 +62,7 @@
     attention_required: string[]
   }
 
-  const API_URL = 'http://127.0.0.1:8000'
+  const API_URL = 'https://monitoring-system-backend.onrender.com'
 
   function Dashboard() {
     const [data, setData] = useState<DashboardData | null>(null)
