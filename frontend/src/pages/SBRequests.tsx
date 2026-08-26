@@ -59,6 +59,8 @@ function SBRequests() {
   const [editingRemarks, setEditingRemarks] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
+
+    
   const fetchSbRequests = async () => {
     const res = await fetch(`${API_URL}/api/sb-requests`)
     setSbRequests(await res.json())
