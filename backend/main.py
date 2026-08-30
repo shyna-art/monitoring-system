@@ -700,3 +700,60 @@ def dashboard_summary(start_date: str = None, end_date: str = None):
         "sb_requests": sb_stats,
         "attention_required": attention,
     }
+
+class BulkTruckerItem(BaseModel):
+    name: str
+    depot_name: str
+
+class BulkTruckerCreate(BaseModel):
+    items: list[BulkTruckerItem]
+
+@app.post("/api/truckers/bulk")
+def bulk_create_truckers(payload: BulkTruckerCreate):
+    depots_result = supabase.table("depots").select("id, name").eq("is_active", True).execute()
+    depot_lookup = {d["name"].strip().lower(): d["id"] for d in depots_result.data}
+
+    created = []
+    skipped = []
+
+    for item in payload.items:
+        depot_id = depot_lookup.get(item.depot_name.strip().lower())
+        if not depot_id:
+            skipped.append({"name": item.name, "reason": f"Depot '{item.depot_name}' not found"})
+            continue
+        result = supabase.table("truckers").insert({
+            "name": item.name,
+            "depot_id": depot_id
+        }).execute()
+        created.append(item.name)
+
+    return {"created": created, "skipped": skipped}
+
+
+class BulkDriverItem(BaseModel):
+    name: str
+    trucker_name: str
+
+class BulkDriverCreate(BaseModel):
+    items: list[BulkDriverItem]
+
+@app.post("/api/drivers/bulk")
+def bulk_create_drivers(payload: BulkDriverCreate):
+    truckers_result = supabase.table("truckers").select("id, name").eq("is_active", True).execute()
+    trucker_lookup = {t["name"].strip().lower(): t["id"] for t in truckers_result.data}
+
+    created = []
+    skipped = []
+
+    for item in payload.items:
+        trucker_id = trucker_lookup.get(item.trucker_name.strip().lower())
+        if not trucker_id:
+            skipped.append({"name": item.name, "reason": f"Trucker '{item.trucker_name}' not found"})
+            continue
+        result = supabase.table("drivers").insert({
+            "name": item.name,
+            "trucker_id": trucker_id
+        }).execute()
+        created.append(item.name)
+
+    return {"created": created, "skipped": skipped}
