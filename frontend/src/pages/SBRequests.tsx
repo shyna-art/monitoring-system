@@ -12,6 +12,7 @@ interface SBRequest {
   status: string
   date_started: string | null
   date_resolved: string | null
+  resolution_days: number | null
   remarks: string | null
 }
 
@@ -58,6 +59,10 @@ function SBRequests() {
   const [editingStatus, setEditingStatus] = useState('Pending')
   const [editingRemarks, setEditingRemarks] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [editingDateResolved, setEditingDateResolved] = useState('')
+
+  const [filterStartDate, setFilterStartDate] = useState('')
+  const [filterEndDate, setFilterEndDate] = useState('')
 
 
     
@@ -112,36 +117,43 @@ function SBRequests() {
   }
 
   const startEditing = (r: SBRequest) => {
-    setEditingId(r.id)
-    setEditingTitle(r.title)
-    setEditingDescription(r.description ?? '')
-    setEditingPriority(r.priority)
-    setEditingDateRequested(r.date_requested)
-    setEditingAssignedTeam(r.assigned_team ?? '')
-    setEditingStatus(r.status)
-    setEditingRemarks(r.remarks ?? '')
-  }
+  setEditingId(r.id)
+  setEditingTitle(r.title)
+  setEditingDescription(r.description ?? '')
+  setEditingPriority(r.priority)
+  setEditingDateRequested(r.date_requested)
+  setEditingAssignedTeam(r.assigned_team ?? '')
+  setEditingStatus(r.status)
+  setEditingRemarks(r.remarks ?? '')
+  setEditingDateResolved(r.date_resolved ?? '')
+}
 
-  const saveEdit = async (requestId: string) => {
-    await fetch(`${API_URL}/api/sb-requests/${requestId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: editingTitle,
-        description: editingDescription || null,
-        priority: editingPriority,
-        date_requested: editingDateRequested,
-        assigned_team: editingAssignedTeam || null,
-        status: editingStatus,
-        date_started: null,
-        date_resolved: null,
-        remarks: editingRemarks || null,
-      }),
-    })
-    setEditingId(null)
-    await fetchSbRequests()
-    await fetchSbAnalytics()
-  }
+const saveEdit = async (requestId: string) => {
+  await fetch(`${API_URL}/api/sb-requests/${requestId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: editingTitle,
+      description: editingDescription || null,
+      priority: editingPriority,
+      date_requested: editingDateRequested,
+      assigned_team: editingAssignedTeam || null,
+      status: editingStatus,
+      date_started: null,
+      date_resolved: editingDateResolved || null,
+      remarks: editingRemarks || null,
+    }),
+  })
+  setEditingId(null)
+  await fetchSbRequests()
+  await fetchSbAnalytics()
+}
+
+  const filteredRequests = sbRequests.filter((r) => {
+    if (filterStartDate && r.date_requested < filterStartDate) return false
+    if (filterEndDate && r.date_requested > filterEndDate) return false
+    return true
+  })
 
   const handleDelete = async () => {
     if (!confirmDeleteId) return
@@ -264,12 +276,24 @@ function SBRequests() {
         </Card>
 
         <Card>
-          <CardHeader title={`All Requests (${sbRequests.length})`} />
-          <CardBody className="!p-0">
-            <Table>
-              <TableHead columns={['Title', 'Date', 'Priority', 'Team', 'Status', '']} />
-              <tbody>
-                {sbRequests.map((r) => (
+  <CardHeader title={`All Requests (${filteredRequests.length} of ${sbRequests.length})`} />
+  <CardBody className="!p-4 border-b border-slate-100">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-medium text-slate-600">Requested Date Range:</span>
+      <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className={inputClass} />
+      <span className="text-slate-400 text-xs">to</span>
+      <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className={inputClass} />
+      {(filterStartDate || filterEndDate) && (
+        <button onClick={() => { setFilterStartDate(''); setFilterEndDate('') }} className="text-xs text-blue-600 hover:text-blue-700 ml-2">
+          Clear
+        </button>
+      )}
+    </div>
+  </CardBody>
+  <CardBody className="!p-0">
+    <Table>
+<TableHead columns={['Title', 'Date Requested', 'Priority', 'Team', 'Status', 'Resolution Time', '']} />              <tbody>
+                {filteredRequests.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 last:border-0 align-top">
                     {editingId === r.id ? (
                       <>
@@ -311,6 +335,14 @@ function SBRequests() {
                             ))}
                           </select>
                         </td>
+                        <td className="px-5 py-3.5">
+                        <input
+                          type="date"
+                          value={editingDateResolved}
+                          onChange={(e) => setEditingDateResolved(e.target.value)}
+                          className={inputClass}
+                        />
+                      </td>
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex justify-end gap-1">
                             <button onClick={() => saveEdit(r.id)} className="text-emerald-600 hover:text-emerald-700 p-1">
@@ -330,6 +362,13 @@ function SBRequests() {
                         <td className="px-5 py-3.5 text-slate-500">{r.assigned_team ?? '—'}</td>
                         <td className="px-5 py-3.5">
                           <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-500">
+                          {r.resolution_days !== null
+                            ? r.resolution_days === 0
+                              ? 'Same day'
+                              : `${r.resolution_days} day${r.resolution_days === 1 ? '' : 's'}`
+                            : '—'}
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex justify-end gap-1">

@@ -552,7 +552,17 @@ def create_sb_request(req: SBRequestCreate):
 @app.get("/api/sb-requests")
 def list_sb_requests():
     result = supabase.table("sb_requests").select("*").order("date_requested", desc=True).execute()
-    return result.data
+    requests = result.data
+
+    for r in requests:
+        if r.get("date_resolved") and r.get("date_requested"):
+            requested = datetime.strptime(r["date_requested"], "%Y-%m-%d").date()
+            resolved = datetime.strptime(r["date_resolved"], "%Y-%m-%d").date()
+            r["resolution_days"] = (resolved - requested).days
+        else:
+            r["resolution_days"] = None
+
+    return requests
 
 @app.put("/api/sb-requests/{request_id}")
 def update_sb_request(request_id: str, req: SBRequestCreate):
