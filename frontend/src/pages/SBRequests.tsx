@@ -311,7 +311,7 @@ function SBRequests() {
 
   return (
     <div className="flex-1 p-8">
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-6xl space-y-8">
 
         <PageHeader
           title="SB Requests"
@@ -541,9 +541,8 @@ function SBRequests() {
             </div>
           </CardBody>
 
-          <CardBody className="!p-0">
+          <CardBody className="!p-0 overflow-x-auto">
             <Table>
-
               <TableHead
                 columns={[
                   'Title',
@@ -561,216 +560,177 @@ function SBRequests() {
                 {filteredRequests.map((r) => (
                   <tr
                     key={r.id}
-                    className="border-b border-slate-50 last:border-0 align-top"
+                    className={`border-b border-slate-50 last:border-0 align-top transition-all duration-200 ${
+                      editingId === r.id ? 'bg-blue-50/50' : ''
+                    }`}
                   >
-
                     {editingId === r.id ? (
                       <>
-                        {/* TITLE */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[140px]">
                           <input
                             type="text"
                             value={editingTitle}
-                            onChange={(e) =>
-                              setEditingTitle(e.target.value)
-                            }
-                            className={`w-full ${inputClass}`}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            className={`w-full ${inputClass} text-sm`}
+                            placeholder="Title"
                           />
                         </td>
 
-                        {/* DATE REQUESTED */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[130px]">
                           <input
                             type="date"
                             value={editingDateRequested}
-                            onChange={(e) =>
-                              setEditingDateRequested(e.target.value)
-                            }
-                            className={inputClass}
+                            onChange={(e) => setEditingDateRequested(e.target.value)}
+                            className={`${inputClass} text-sm w-full`}
                           />
                         </td>
 
-                        {/* PROPOSED DATE */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[130px]">
                           <input
                             type="date"
                             value={editingProposedDate}
-                            onChange={(e) =>
-                              setEditingProposedDate(e.target.value)
-                            }
-                            className={inputClass}
+                            onChange={(e) => setEditingProposedDate(e.target.value)}
+                            className={`${inputClass} text-sm w-full`}
                           />
                         </td>
 
-                        {/* PRIORITY */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[100px]">
                           <select
                             value={editingPriority}
-                            onChange={(e) =>
-                              setEditingPriority(e.target.value)
-                            }
-                            className={inputClass}
+                            onChange={(e) => setEditingPriority(e.target.value)}
+                            className={`${inputClass} text-sm w-full`}
                           >
                             {PRIORITIES.map((p) => (
-                              <option key={p} value={p}>
-                                {p}
-                              </option>
+                              <option key={p} value={p}>{p}</option>
                             ))}
                           </select>
                         </td>
 
-                        {/* TEAM */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[120px]">
                           <input
                             type="text"
                             value={editingAssignedTeam}
-                            onChange={(e) =>
-                              setEditingAssignedTeam(e.target.value)
-                            }
-                            className={`w-full ${inputClass}`}
+                            onChange={(e) => setEditingAssignedTeam(e.target.value)}
+                            className={`w-full ${inputClass} text-sm`}
+                            placeholder="Team"
                           />
                         </td>
 
-                        {/* STATUS */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[120px]">
                           <select
                             value={editingStatus}
-                            onChange={(e) =>
-                              setEditingStatus(e.target.value)
-                            }
-                            className={inputClass}
+                            onChange={(e) => setEditingStatus(e.target.value)}
+                            className={`${inputClass} text-sm w-full`}
                           >
                             {STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
+                              <option key={s} value={s}>{s}</option>
                             ))}
                           </select>
                         </td>
 
-                        {/* DATE RESOLVED */}
-                        <td className="px-5 py-3.5">
+                        <td className="px-3 py-3 min-w-[130px]">
                           <input
                             type="date"
                             value={editingDateResolved}
-                            onChange={(e) =>
-                              setEditingDateResolved(e.target.value)
-                            }
-                            className={inputClass}
+                            onChange={(e) => setEditingDateResolved(e.target.value)}
+                            className={`${inputClass} text-sm w-full`}
+                            placeholder="Resolved"
                           />
                         </td>
 
-                        {/* ACTIONS */}
-                        <td className="px-5 py-3.5 text-right">
-                          <div className="flex justify-end gap-1">
-
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => saveEdit(r.id)}
-                              className="text-emerald-600 hover:text-emerald-700 p-1"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium rounded-md transition-colors"
                             >
-                              <Check size={17} />
+                              <Check size={14} />
+                              Save
                             </button>
-
                             <button
                               onClick={() => setEditingId(null)}
-                              className="text-slate-400 hover:text-slate-600 p-1"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-medium rounded-md transition-colors"
                             >
-                              <X size={17} />
+                              <X size={14} />
+                              Cancel
                             </button>
-
                           </div>
                         </td>
                       </>
                     ) : (
                       <>
-                        {/* TITLE */}
-                        <td className="px-5 py-3.5 text-slate-800">
+                        <td className="px-5 py-3.5 text-slate-800 font-medium">
                           {r.title}
                         </td>
 
-                        {/* DATE REQUESTED */}
-                        <td className="px-5 py-3.5 text-slate-500">
+                        <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap">
                           {r.date_requested}
                         </td>
 
-                        {/* PROPOSED DATE */}
                         <td className="px-5 py-3.5">
                           {r.proposed_date ? (
                             <div>
-                              <div className="text-slate-500 text-xs">
+                              <div className="text-slate-500 text-xs whitespace-nowrap">
                                 {r.proposed_date}
                               </div>
-
-                              {countdownBadge(
-                                r.days_until_proposed
-                              )}
+                              {countdownBadge(r.days_until_proposed)}
                             </div>
                           ) : (
-                            <span className="text-slate-400 text-xs">
-                              —
-                            </span>
+                            <span className="text-slate-400 text-xs">—</span>
                           )}
                         </td>
 
-                        {/* PRIORITY */}
                         <td className="px-5 py-3.5 text-slate-500">
-                          {r.priority}
+                          <Badge tone={
+                            r.priority === 'Critical' ? 'red' :
+                            r.priority === 'High' ? 'orange' :
+                            r.priority === 'Medium' ? 'yellow' : 'gray'
+                          }>
+                            {r.priority}
+                          </Badge>
                         </td>
 
-                        {/* TEAM */}
                         <td className="px-5 py-3.5 text-slate-500">
                           {r.assigned_team ?? '—'}
                         </td>
 
-                        {/* STATUS */}
                         <td className="px-5 py-3.5">
                           <Badge tone={statusTone(r.status)}>
                             {r.status}
                           </Badge>
                         </td>
 
-                        {/* RESOLUTION TIME */}
                         <td className="px-5 py-3.5 text-slate-500">
                           {r.resolution_days !== null
                             ? r.resolution_days === 0
                               ? 'Same day'
-                              : `${r.resolution_days} day${
-                                  r.resolution_days === 1
-                                    ? ''
-                                    : 's'
-                                }`
+                              : `${r.resolution_days} day${r.resolution_days === 1 ? '' : 's'}`
                             : '—'}
                         </td>
 
-                        {/* ACTIONS */}
-                        <td className="px-5 py-3.5 text-right">
+                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
                           <div className="flex justify-end gap-1">
-
                             <button
                               onClick={() => startEditing(r)}
-                              className="text-slate-400 hover:text-blue-600 p-1"
+                              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-md transition-all"
+                              title="Edit"
                             >
                               <Pencil size={15} />
                             </button>
-
                             <button
-                              onClick={() =>
-                                setConfirmDeleteId(r.id)
-                              }
-                              className="text-slate-400 hover:text-rose-600 p-1"
+                              onClick={() => setConfirmDeleteId(r.id)}
+                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-md transition-all"
+                              title="Delete"
                             >
                               <Archive size={15} />
                             </button>
-
                           </div>
                         </td>
                       </>
                     )}
-
                   </tr>
                 ))}
               </tbody>
-
             </Table>
           </CardBody>
         </Card>
