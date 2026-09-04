@@ -186,10 +186,11 @@ class BreakdownCreate(BaseModel):
 class SBRequestCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    priority: str  # "Low" | "Medium" | "High" | "Critical"
+    priority: str
     date_requested: date
+    proposed_date: Optional[date] = None
     assigned_team: Optional[str] = None
-    status: str  # "Pending" | "In Progress" | "For Testing" | "For Deployment" | "Resolved" | "Cancelled"
+    status: str
     date_started: Optional[date] = None
     date_resolved: Optional[date] = None
     remarks: Optional[str] = None
@@ -541,6 +542,7 @@ def create_sb_request(req: SBRequestCreate):
         "description": req.description,
         "priority": req.priority,
         "date_requested": req.date_requested.isoformat(),
+        "proposed_date": req.proposed_date.isoformat() if req.proposed_date else None,
         "assigned_team": req.assigned_team,
         "status": req.status,
         "date_started": req.date_started.isoformat() if req.date_started else None,
@@ -553,6 +555,7 @@ def create_sb_request(req: SBRequestCreate):
 def list_sb_requests():
     result = supabase.table("sb_requests").select("*").order("date_requested", desc=True).execute()
     requests = result.data
+    today = datetime.now().date()
 
     for r in requests:
         if r.get("date_resolved") and r.get("date_requested"):
@@ -562,7 +565,14 @@ def list_sb_requests():
         else:
             r["resolution_days"] = None
 
-    return requests
+        # Days remaining / overdue based on proposed_date, only relevant if not yet resolved
+        if r.get("proposed_date") and r["status"] not in ["Resolved", "Cancelled"]:
+            proposed = datetime.strptime(r["proposed_date"], "%Y-%m-%d").date()
+            r["days_until_proposed"] = (proposed - today).days
+        else:
+            r["days_until_proposed"] = None
+
+    return requestss
 
 @app.put("/api/sb-requests/{request_id}")
 def update_sb_request(request_id: str, req: SBRequestCreate):
@@ -571,6 +581,7 @@ def update_sb_request(request_id: str, req: SBRequestCreate):
         "description": req.description,
         "priority": req.priority,
         "date_requested": req.date_requested.isoformat(),
+        "proposed_date": req.proposed_date.isoformat() if req.proposed_date else None,
         "assigned_team": req.assigned_team,
         "status": req.status,
         "date_started": req.date_started.isoformat() if req.date_started else None,
@@ -633,7 +644,7 @@ def sb_requests_analytics(start_date: str = None, end_date: str = None):
         "status_counts": status_counts,
         "oldest_pending_requests": oldest_pending[:10],
     }
-
+today = datetime.now().date()
 @app.get("/api/dashboard")
 def dashboard_summary(start_date: str = None, end_date: str = None):
     depots_result = supabase.table("depots").select("id, name").eq("is_active", True).execute()
@@ -689,6 +700,16 @@ def dashboard_summary(start_date: str = None, end_date: str = None):
     for r in sb_stats["oldest_pending_requests"]:
         if r["age_days"] > 10:
             attention.append(f"{r['title']} has been pending for {r['age_days']} days")
+            # SB requests overdue or due soon based on proposed date
+sb_requests_result = supabase.table("sb_requests").select("*").execute()
+for r in sb_requests_result.data:
+    if r.get("proposed_date") and r["status"] not in ["Resolved", "Cancelled"]:
+        proposed = datetime.strptime(r["proposed_date"], "%Y-%m-%d").date()
+        days_left = (proposed - today).days
+        if days_left < 0:
+            attention.append(f"'{r['title']}' is {abs(days_left)} day(s) overdue — follow up with SB")
+        elif days_left <= 2:
+            attention.append(f"'{r['title']}' is due in {days_left} day(s) — check progress with SB")
 
     # Breakdowns this week
     if breakdown_stats["this_week"] > 0:
