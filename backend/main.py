@@ -572,7 +572,7 @@ def list_sb_requests():
         else:
             r["days_until_proposed"] = None
 
-    return requestss
+    return requests
 
 @app.put("/api/sb-requests/{request_id}")
 def update_sb_request(request_id: str, req: SBRequestCreate):
@@ -701,15 +701,15 @@ def dashboard_summary(start_date: str = None, end_date: str = None):
         if r["age_days"] > 10:
             attention.append(f"{r['title']} has been pending for {r['age_days']} days")
             # SB requests overdue or due soon based on proposed date
-sb_requests_result = supabase.table("sb_requests").select("*").execute()
-for r in sb_requests_result.data:
-    if r.get("proposed_date") and r["status"] not in ["Resolved", "Cancelled"]:
-        proposed = datetime.strptime(r["proposed_date"], "%Y-%m-%d").date()
-        days_left = (proposed - today).days
-        if days_left < 0:
-            attention.append(f"'{r['title']}' is {abs(days_left)} day(s) overdue — follow up with SB")
-        elif days_left <= 2:
-            attention.append(f"'{r['title']}' is due in {days_left} day(s) — check progress with SB")
+    sb_requests_result = supabase.table("sb_requests").select("*").execute()
+    for r in sb_requests_result.data:
+        if r.get("proposed_date") and r["status"] not in ["Resolved", "Cancelled"]:
+            proposed = datetime.strptime(r["proposed_date"], "%Y-%m-%d").date()
+            days_left = (proposed - today).days
+            if days_left < 0:
+                attention.append(f"'{r['title']}' is {abs(days_left)} day(s) overdue — follow up with SB")
+            elif days_left <= 2:
+                attention.append(f"'{r['title']}' is due in {days_left} day(s) — check progress with SB")
 
     # Breakdowns this week
     if breakdown_stats["this_week"] > 0:
@@ -724,12 +724,12 @@ for r in sb_requests_result.data:
             "depots_not_using": depot_analytics["not_using"],
             "system_breakdowns_this_month": breakdown_stats["this_month"],
             "pending_sb_requests": sb_stats["status_counts"].get("Pending", 0),
-        },
-        "driver_tracking": driver_analytics,
-        "depot_monitoring": depot_analytics,
-        "breakdown": breakdown_stats,
-        "sb_requests": sb_stats,
-        "attention_required": attention,
+                    },
+                    "driver_tracking": driver_analytics,
+                    "depot_monitoring": depot_analytics,
+                    "breakdown": breakdown_stats,
+                    "sb_requests": sb_stats,
+                    "attention_required": attention,
     }
 
 class BulkTruckerItem(BaseModel):
