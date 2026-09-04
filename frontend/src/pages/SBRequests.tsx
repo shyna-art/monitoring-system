@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Check, X, Archive } from 'lucide-react'
-import { PageHeader, Card, CardHeader, CardBody, Button, Badge, inputClass, Table, TableHead, ConfirmDialog } from '../components/ui'
+import {
+  PageHeader,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  Badge,
+  inputClass,
+  Table,
+  TableHead,
+  ConfirmDialog
+} from '../components/ui'
 
 interface SBRequest {
   id: string
@@ -8,11 +19,13 @@ interface SBRequest {
   description: string | null
   priority: string
   date_requested: string
+  proposed_date: string | null
   assigned_team: string | null
   status: string
   date_started: string | null
   date_resolved: string | null
   resolution_days: number | null
+  days_until_proposed: number | null
   remarks: string | null
 }
 
@@ -34,11 +47,20 @@ interface SBRequestAnalytics {
 const API_URL = import.meta.env.VITE_API_URL
 
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
-const STATUSES = ['Pending', 'In Progress', 'For Testing', 'For Deployment', 'Resolved', 'Cancelled']
+
+const STATUSES = [
+  'Pending',
+  'In Progress',
+  'For Testing',
+  'For Deployment',
+  'Resolved',
+  'Cancelled'
+]
 
 function SBRequests() {
   const [sbRequests, setSbRequests] = useState<SBRequest[]>([])
-  const [sbAnalytics, setSbAnalytics] = useState<SBRequestAnalytics | null>(null)
+  const [sbAnalytics, setSbAnalytics] =
+    useState<SBRequestAnalytics | null>(null)
 
   const [reqTitle, setReqTitle] = useState('')
   const [reqDescription, setReqDescription] = useState('')
@@ -64,16 +86,37 @@ function SBRequests() {
   const [filterStartDate, setFilterStartDate] = useState('')
   const [filterEndDate, setFilterEndDate] = useState('')
 
+  const [reqProposedDate, setReqProposedDate] = useState('')
+  const [editingProposedDate, setEditingProposedDate] = useState('')
 
-    
   const fetchSbRequests = async () => {
-    const res = await fetch(`${API_URL}/api/sb-requests`)
-    setSbRequests(await res.json())
+    try {
+      const res = await fetch(`${API_URL}/api/sb-requests`)
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch SB requests.')
+      }
+
+      const data = await res.json()
+      setSbRequests(data)
+    } catch (error) {
+      console.error('Error fetching SB requests:', error)
+    }
   }
 
   const fetchSbAnalytics = async () => {
-    const res = await fetch(`${API_URL}/api/analytics/sb-requests`)
-    setSbAnalytics(await res.json())
+    try {
+      const res = await fetch(`${API_URL}/api/analytics/sb-requests`)
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch SB request analytics.')
+      }
+
+      const data = await res.json()
+      setSbAnalytics(data)
+    } catch (error) {
+      console.error('Error fetching SB request analytics:', error)
+    }
   }
 
   useEffect(() => {
@@ -83,121 +126,244 @@ function SBRequests() {
 
   const handleAddSbRequest = async () => {
     setReqError('')
+
     if (!reqTitle.trim() || !reqPriority || !reqDateRequested || !reqStatus) {
-      setReqError('Title, priority, date requested, and status are required.')
+      setReqError(
+        'Title, priority, date requested, and status are required.'
+      )
       return
     }
 
     setReqLoading(true)
-    await fetch(`${API_URL}/api/sb-requests`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: reqTitle,
-        description: reqDescription || null,
-        priority: reqPriority,
-        date_requested: reqDateRequested,
-        assigned_team: reqAssignedTeam || null,
-        status: reqStatus,
-        date_started: null,
-        date_resolved: null,
-        remarks: reqRemarks || null,
-      }),
-    })
-    setReqTitle('')
-    setReqDescription('')
-    setReqPriority('Medium')
-    setReqDateRequested('')
-    setReqAssignedTeam('')
-    setReqStatus('Pending')
-    setReqRemarks('')
-    await fetchSbRequests()
-    await fetchSbAnalytics()
-    setReqLoading(false)
+
+    try {
+      const res = await fetch(`${API_URL}/api/sb-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: reqTitle,
+          description: reqDescription || null,
+          priority: reqPriority,
+          date_requested: reqDateRequested,
+          proposed_date: reqProposedDate || null,
+          assigned_team: reqAssignedTeam || null,
+          status: reqStatus,
+          date_started: null,
+          date_resolved: null,
+          remarks: reqRemarks || null,
+        }),
+      })
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText || 'Failed to create SB request.')
+      }
+
+      setReqTitle('')
+      setReqDescription('')
+      setReqPriority('Medium')
+      setReqDateRequested('')
+      setReqProposedDate('')
+      setReqAssignedTeam('')
+      setReqStatus('Pending')
+      setReqRemarks('')
+
+      await fetchSbRequests()
+      await fetchSbAnalytics()
+    } catch (error) {
+      console.error('Error creating SB request:', error)
+
+      setReqError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to create SB request.'
+      )
+    } finally {
+      setReqLoading(false)
+    }
   }
 
   const startEditing = (r: SBRequest) => {
-  setEditingId(r.id)
-  setEditingTitle(r.title)
-  setEditingDescription(r.description ?? '')
-  setEditingPriority(r.priority)
-  setEditingDateRequested(r.date_requested)
-  setEditingAssignedTeam(r.assigned_team ?? '')
-  setEditingStatus(r.status)
-  setEditingRemarks(r.remarks ?? '')
-  setEditingDateResolved(r.date_resolved ?? '')
-}
+    setEditingId(r.id)
+    setEditingTitle(r.title)
+    setEditingDescription(r.description ?? '')
+    setEditingPriority(r.priority)
+    setEditingDateRequested(r.date_requested)
+    setEditingProposedDate(r.proposed_date ?? '')
+    setEditingAssignedTeam(r.assigned_team ?? '')
+    setEditingStatus(r.status)
+    setEditingRemarks(r.remarks ?? '')
+    setEditingDateResolved(r.date_resolved ?? '')
+  }
 
-const saveEdit = async (requestId: string) => {
-  await fetch(`${API_URL}/api/sb-requests/${requestId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: editingTitle,
-      description: editingDescription || null,
-      priority: editingPriority,
-      date_requested: editingDateRequested,
-      assigned_team: editingAssignedTeam || null,
-      status: editingStatus,
-      date_started: null,
-      date_resolved: editingDateResolved || null,
-      remarks: editingRemarks || null,
-    }),
-  })
-  setEditingId(null)
-  await fetchSbRequests()
-  await fetchSbAnalytics()
-}
+  const saveEdit = async (requestId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/sb-requests/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editingTitle,
+          description: editingDescription || null,
+          priority: editingPriority,
+          date_requested: editingDateRequested,
+          proposed_date: editingProposedDate || null,
+          assigned_team: editingAssignedTeam || null,
+          status: editingStatus,
+          date_started: null,
+          date_resolved: editingDateResolved || null,
+          remarks: editingRemarks || null,
+        }),
+      })
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText || 'Failed to update SB request.')
+      }
+
+      setEditingId(null)
+
+      await fetchSbRequests()
+      await fetchSbAnalytics()
+    } catch (error) {
+      console.error('Error updating SB request:', error)
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update SB request.'
+      )
+    }
+  }
 
   const filteredRequests = sbRequests.filter((r) => {
-    if (filterStartDate && r.date_requested < filterStartDate) return false
-    if (filterEndDate && r.date_requested > filterEndDate) return false
+    if (filterStartDate && r.date_requested < filterStartDate) {
+      return false
+    }
+
+    if (filterEndDate && r.date_requested > filterEndDate) {
+      return false
+    }
+
     return true
   })
 
   const handleDelete = async () => {
     if (!confirmDeleteId) return
-    await fetch(`${API_URL}/api/sb-requests/${confirmDeleteId}`, { method: 'DELETE' })
-    setConfirmDeleteId(null)
-    await fetchSbRequests()
-    await fetchSbAnalytics()
+
+    try {
+      const res = await fetch(
+        `${API_URL}/api/sb-requests/${confirmDeleteId}`,
+        {
+          method: 'DELETE'
+        }
+      )
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText || 'Failed to delete SB request.')
+      }
+
+      setConfirmDeleteId(null)
+
+      await fetchSbRequests()
+      await fetchSbAnalytics()
+    } catch (error) {
+      console.error('Error deleting SB request:', error)
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete SB request.'
+      )
+    }
   }
 
   const statusTone = (status: string) => {
     if (status === 'Resolved') return 'green'
     if (status === 'Cancelled') return 'gray'
+
     return 'yellow'
+  }
+
+  const countdownBadge = (days: number | null) => {
+    if (days === null) {
+      return <span className="text-slate-400 text-xs">—</span>
+    }
+
+    if (days < 0) {
+      return (
+        <Badge tone="red">
+          {Math.abs(days)}d overdue
+        </Badge>
+      )
+    }
+
+    if (days === 0) {
+      return <Badge tone="red">Due today</Badge>
+    }
+
+    if (days <= 3) {
+      return <Badge tone="yellow">{days}d left</Badge>
+    }
+
+    return <Badge tone="gray">{days}d left</Badge>
   }
 
   return (
     <div className="flex-1 p-8">
       <div className="max-w-4xl space-y-8">
-        <PageHeader title="SB Requests" description="Track programmer requests and their resolution progress." />
+
+        <PageHeader
+          title="SB Requests"
+          description="Track programmer requests and their resolution progress."
+        />
 
         {sbAnalytics && (
           <>
             <div className="grid grid-cols-6 gap-3">
-              {Object.entries(sbAnalytics.status_counts).map(([status, count]) => (
-                <Card key={status} className="p-3 text-center">
-                  <div className="text-xl font-bold text-slate-900">{count}</div>
-                  <div className="text-xs font-medium text-slate-500 mt-1">{status}</div>
-                </Card>
-              ))}
+              {Object.entries(sbAnalytics.status_counts).map(
+                ([status, count]) => (
+                  <Card
+                    key={status}
+                    className="p-3 text-center"
+                  >
+                    <div className="text-xl font-bold text-slate-900">
+                      {count}
+                    </div>
+
+                    <div className="text-xs font-medium text-slate-500 mt-1">
+                      {status}
+                    </div>
+                  </Card>
+                )
+              )}
             </div>
 
             <Card>
               <CardHeader title="Oldest Pending Requests" />
+
               <CardBody>
                 {sbAnalytics.oldest_pending_requests.length === 0 ? (
-                  <p className="text-xs text-slate-400">No pending requests</p>
+                  <p className="text-xs text-slate-400">
+                    No pending requests
+                  </p>
                 ) : (
                   <ul className="space-y-3">
                     {sbAnalytics.oldest_pending_requests.map((r, i) => (
-                      <li key={r.id} className="flex justify-between items-center text-sm">
+                      <li
+                        key={r.id}
+                        className="flex justify-between items-center text-sm"
+                      >
                         <span className="text-slate-700">
-                          {i + 1}. {r.title} <span className="text-slate-400 text-xs">({r.priority})</span>
+                          {i + 1}. {r.title}{' '}
+                          <span className="text-slate-400 text-xs">
+                            ({r.priority})
+                          </span>
                         </span>
-                        <Badge tone={r.age_days > 10 ? 'red' : 'gray'}>{r.age_days} days</Badge>
+
+                        <Badge tone={r.age_days > 10 ? 'red' : 'gray'}>
+                          {r.age_days} days
+                        </Badge>
                       </li>
                     ))}
                   </ul>
@@ -209,6 +375,7 @@ const saveEdit = async (requestId: string) => {
 
         <Card>
           <CardHeader title="Add SB Request" />
+
           <CardBody>
             <input
               type="text"
@@ -227,32 +394,83 @@ const saveEdit = async (requestId: string) => {
             />
 
             <div className="grid grid-cols-2 gap-3 mb-3">
-              <select value={reqPriority} onChange={(e) => setReqPriority(e.target.value)} className={inputClass}>
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
 
-              <input
-                type="date"
-                value={reqDateRequested}
-                onChange={(e) => setReqDateRequested(e.target.value)}
-                className={inputClass}
-              />
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Priority
+                </label>
 
-              <input
-                type="text"
-                value={reqAssignedTeam}
-                onChange={(e) => setReqAssignedTeam(e.target.value)}
-                placeholder="Assigned Team (optional)"
-                className={inputClass}
-              />
+                <select
+                  value={reqPriority}
+                  onChange={(e) => setReqPriority(e.target.value)}
+                  className={inputClass}
+                >
+                  {PRIORITIES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              <select value={reqStatus} onChange={(e) => setReqStatus(e.target.value)} className={inputClass}>
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Date Requested
+                </label>
+
+                <input
+                  type="date"
+                  value={reqDateRequested}
+                  onChange={(e) => setReqDateRequested(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Proposed Date
+                </label>
+
+                <input
+                  type="date"
+                  value={reqProposedDate}
+                  onChange={(e) => setReqProposedDate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Assigned Team
+                </label>
+
+                <input
+                  type="text"
+                  value={reqAssignedTeam}
+                  onChange={(e) => setReqAssignedTeam(e.target.value)}
+                  placeholder="Assigned Team (optional)"
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Status
+                </label>
+
+                <select
+                  value={reqStatus}
+                  onChange={(e) => setReqStatus(e.target.value)}
+                  className={inputClass}
+                >
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
             </div>
 
             <input
@@ -269,122 +487,290 @@ const saveEdit = async (requestId: string) => {
               </div>
             )}
 
-            <Button onClick={handleAddSbRequest} disabled={reqLoading}>
+            <Button
+              onClick={handleAddSbRequest}
+              disabled={reqLoading}
+            >
               {reqLoading ? 'Saving…' : 'Add Request'}
             </Button>
           </CardBody>
         </Card>
 
         <Card>
-  <CardHeader title={`All Requests (${filteredRequests.length} of ${sbRequests.length})`} />
-  <CardBody className="!p-4 border-b border-slate-100">
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-sm font-medium text-slate-600">Requested Date Range:</span>
-      <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className={inputClass} />
-      <span className="text-slate-400 text-xs">to</span>
-      <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className={inputClass} />
-      {(filterStartDate || filterEndDate) && (
-        <button onClick={() => { setFilterStartDate(''); setFilterEndDate('') }} className="text-xs text-blue-600 hover:text-blue-700 ml-2">
-          Clear
-        </button>
-      )}
-    </div>
-  </CardBody>
-  <CardBody className="!p-0">
-    <Table>
-<TableHead columns={['Title', 'Date Requested', 'Priority', 'Team', 'Status', 'Resolution Time', '']} />              <tbody>
+          <CardHeader
+            title={`All Requests (${filteredRequests.length} of ${sbRequests.length})`}
+          />
+
+          <CardBody className="!p-4 border-b border-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+
+              <span className="text-sm font-medium text-slate-600">
+                Requested Date Range:
+              </span>
+
+              <input
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                className={inputClass}
+              />
+
+              <span className="text-slate-400 text-xs">
+                to
+              </span>
+
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                className={inputClass}
+              />
+
+              {(filterStartDate || filterEndDate) && (
+                <button
+                  onClick={() => {
+                    setFilterStartDate('')
+                    setFilterEndDate('')
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 ml-2"
+                >
+                  Clear
+                </button>
+              )}
+
+            </div>
+          </CardBody>
+
+          <CardBody className="!p-0">
+            <Table>
+
+              <TableHead
+                columns={[
+                  'Title',
+                  'Date Requested',
+                  'Proposed Date',
+                  'Priority',
+                  'Team',
+                  'Status',
+                  'Resolution Time',
+                  ''
+                ]}
+              />
+
+              <tbody>
                 {filteredRequests.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 last:border-0 align-top">
+                  <tr
+                    key={r.id}
+                    className="border-b border-slate-50 last:border-0 align-top"
+                  >
+
                     {editingId === r.id ? (
                       <>
+                        {/* TITLE */}
                         <td className="px-5 py-3.5">
                           <input
                             type="text"
                             value={editingTitle}
-                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onChange={(e) =>
+                              setEditingTitle(e.target.value)
+                            }
                             className={`w-full ${inputClass}`}
                           />
                         </td>
+
+                        {/* DATE REQUESTED */}
                         <td className="px-5 py-3.5">
                           <input
                             type="date"
                             value={editingDateRequested}
-                            onChange={(e) => setEditingDateRequested(e.target.value)}
+                            onChange={(e) =>
+                              setEditingDateRequested(e.target.value)
+                            }
                             className={inputClass}
                           />
                         </td>
+
+                        {/* PROPOSED DATE */}
                         <td className="px-5 py-3.5">
-                          <select value={editingPriority} onChange={(e) => setEditingPriority(e.target.value)} className={inputClass}>
+                          <input
+                            type="date"
+                            value={editingProposedDate}
+                            onChange={(e) =>
+                              setEditingProposedDate(e.target.value)
+                            }
+                            className={inputClass}
+                          />
+                        </td>
+
+                        {/* PRIORITY */}
+                        <td className="px-5 py-3.5">
+                          <select
+                            value={editingPriority}
+                            onChange={(e) =>
+                              setEditingPriority(e.target.value)
+                            }
+                            className={inputClass}
+                          >
                             {PRIORITIES.map((p) => (
-                              <option key={p} value={p}>{p}</option>
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
                             ))}
                           </select>
                         </td>
+
+                        {/* TEAM */}
                         <td className="px-5 py-3.5">
                           <input
                             type="text"
                             value={editingAssignedTeam}
-                            onChange={(e) => setEditingAssignedTeam(e.target.value)}
+                            onChange={(e) =>
+                              setEditingAssignedTeam(e.target.value)
+                            }
                             className={`w-full ${inputClass}`}
                           />
                         </td>
+
+                        {/* STATUS */}
                         <td className="px-5 py-3.5">
-                          <select value={editingStatus} onChange={(e) => setEditingStatus(e.target.value)} className={inputClass}>
+                          <select
+                            value={editingStatus}
+                            onChange={(e) =>
+                              setEditingStatus(e.target.value)
+                            }
+                            className={inputClass}
+                          >
                             {STATUSES.map((s) => (
-                              <option key={s} value={s}>{s}</option>
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
                             ))}
                           </select>
                         </td>
+
+                        {/* DATE RESOLVED */}
                         <td className="px-5 py-3.5">
-                        <input
-                          type="date"
-                          value={editingDateResolved}
-                          onChange={(e) => setEditingDateResolved(e.target.value)}
-                          className={inputClass}
-                        />
-                      </td>
+                          <input
+                            type="date"
+                            value={editingDateResolved}
+                            onChange={(e) =>
+                              setEditingDateResolved(e.target.value)
+                            }
+                            className={inputClass}
+                          />
+                        </td>
+
+                        {/* ACTIONS */}
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex justify-end gap-1">
-                            <button onClick={() => saveEdit(r.id)} className="text-emerald-600 hover:text-emerald-700 p-1">
+
+                            <button
+                              onClick={() => saveEdit(r.id)}
+                              className="text-emerald-600 hover:text-emerald-700 p-1"
+                            >
                               <Check size={17} />
                             </button>
-                            <button onClick={() => setEditingId(null)} className="text-slate-400 hover:text-slate-600 p-1">
+
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="text-slate-400 hover:text-slate-600 p-1"
+                            >
                               <X size={17} />
                             </button>
+
                           </div>
                         </td>
                       </>
                     ) : (
                       <>
-                        <td className="px-5 py-3.5 text-slate-800">{r.title}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{r.date_requested}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{r.priority}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{r.assigned_team ?? '—'}</td>
-                        <td className="px-5 py-3.5">
-                          <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                        {/* TITLE */}
+                        <td className="px-5 py-3.5 text-slate-800">
+                          {r.title}
                         </td>
+
+                        {/* DATE REQUESTED */}
+                        <td className="px-5 py-3.5 text-slate-500">
+                          {r.date_requested}
+                        </td>
+
+                        {/* PROPOSED DATE */}
+                        <td className="px-5 py-3.5">
+                          {r.proposed_date ? (
+                            <div>
+                              <div className="text-slate-500 text-xs">
+                                {r.proposed_date}
+                              </div>
+
+                              {countdownBadge(
+                                r.days_until_proposed
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs">
+                              —
+                            </span>
+                          )}
+                        </td>
+
+                        {/* PRIORITY */}
+                        <td className="px-5 py-3.5 text-slate-500">
+                          {r.priority}
+                        </td>
+
+                        {/* TEAM */}
+                        <td className="px-5 py-3.5 text-slate-500">
+                          {r.assigned_team ?? '—'}
+                        </td>
+
+                        {/* STATUS */}
+                        <td className="px-5 py-3.5">
+                          <Badge tone={statusTone(r.status)}>
+                            {r.status}
+                          </Badge>
+                        </td>
+
+                        {/* RESOLUTION TIME */}
                         <td className="px-5 py-3.5 text-slate-500">
                           {r.resolution_days !== null
                             ? r.resolution_days === 0
                               ? 'Same day'
-                              : `${r.resolution_days} day${r.resolution_days === 1 ? '' : 's'}`
+                              : `${r.resolution_days} day${
+                                  r.resolution_days === 1
+                                    ? ''
+                                    : 's'
+                                }`
                             : '—'}
                         </td>
+
+                        {/* ACTIONS */}
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex justify-end gap-1">
-                            <button onClick={() => startEditing(r)} className="text-slate-400 hover:text-blue-600 p-1">
+
+                            <button
+                              onClick={() => startEditing(r)}
+                              className="text-slate-400 hover:text-blue-600 p-1"
+                            >
                               <Pencil size={15} />
                             </button>
-                            <button onClick={() => setConfirmDeleteId(r.id)} className="text-slate-400 hover:text-rose-600 p-1">
+
+                            <button
+                              onClick={() =>
+                                setConfirmDeleteId(r.id)
+                              }
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                            >
                               <Archive size={15} />
                             </button>
+
                           </div>
                         </td>
                       </>
                     )}
+
                   </tr>
                 ))}
               </tbody>
+
             </Table>
           </CardBody>
         </Card>
@@ -396,6 +782,7 @@ const saveEdit = async (requestId: string) => {
           onConfirm={handleDelete}
           onCancel={() => setConfirmDeleteId(null)}
         />
+
       </div>
     </div>
   )
