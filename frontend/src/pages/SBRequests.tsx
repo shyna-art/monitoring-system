@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Pencil, Check, X, Archive } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Pencil, X, Archive } from 'lucide-react'
 import {
   PageHeader,
   Card,
@@ -57,10 +58,26 @@ const STATUSES = [
   'Cancelled'
 ]
 
+function Field({
+  label,
+  children
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-500 mb-1">
+        {label}
+      </label>
+      {children}
+    </div>
+  )
+}
+
 function SBRequests() {
   const [sbRequests, setSbRequests] = useState<SBRequest[]>([])
-  const [sbAnalytics, setSbAnalytics] =
-    useState<SBRequestAnalytics | null>(null)
+  const [sbAnalytics, setSbAnalytics] = useState<SBRequestAnalytics | null>(null)
 
   const [reqTitle, setReqTitle] = useState('')
   const [reqDescription, setReqDescription] = useState('')
@@ -71,25 +88,27 @@ function SBRequests() {
   const [reqRemarks, setReqRemarks] = useState('')
   const [reqLoading, setReqLoading] = useState(false)
   const [reqError, setReqError] = useState('')
+  const [reqProposedDate, setReqProposedDate] = useState('')
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDescription, setEditingDescription] = useState('')
   const [editingPriority, setEditingPriority] = useState('Medium')
   const [editingDateRequested, setEditingDateRequested] = useState('')
+  const [editingProposedDate, setEditingProposedDate] = useState('')
   const [editingAssignedTeam, setEditingAssignedTeam] = useState('')
   const [editingStatus, setEditingStatus] = useState('Pending')
   const [editingRemarks, setEditingRemarks] = useState('')
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [editingDateResolved, setEditingDateResolved] = useState('')
+  const [editingError, setEditingError] = useState('')
+  const [editingSaving, setEditingSaving] = useState(false)
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const [filterStartDate, setFilterStartDate] = useState('')
   const [filterEndDate, setFilterEndDate] = useState('')
 
-  const [reqProposedDate, setReqProposedDate] = useState('')
-  const [editingProposedDate, setEditingProposedDate] = useState('')
-
-  const fetchSbRequests = async () => {
+  const fetchSbRequests = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/sb-requests`)
 
@@ -97,14 +116,13 @@ function SBRequests() {
         throw new Error('Failed to fetch SB requests.')
       }
 
-      const data = await res.json()
-      setSbRequests(data)
+      setSbRequests(await res.json())
     } catch (error) {
       console.error('Error fetching SB requests:', error)
     }
-  }
+  }, [])
 
-  const fetchSbAnalytics = async () => {
+  const fetchSbAnalytics = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/analytics/sb-requests`)
 
@@ -112,22 +130,26 @@ function SBRequests() {
         throw new Error('Failed to fetch SB request analytics.')
       }
 
-      const data = await res.json()
-      setSbAnalytics(data)
+      setSbAnalytics(await res.json())
     } catch (error) {
       console.error('Error fetching SB request analytics:', error)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchSbRequests()
     fetchSbAnalytics()
-  }, [])
+  }, [fetchSbRequests, fetchSbAnalytics])
 
   const handleAddSbRequest = async () => {
     setReqError('')
 
-    if (!reqTitle.trim() || !reqPriority || !reqDateRequested || !reqStatus) {
+    if (
+      !reqTitle.trim() ||
+      !reqPriority ||
+      !reqDateRequested ||
+      !reqStatus
+    ) {
       setReqError(
         'Title, priority, date requested, and status are required.'
       )
@@ -139,7 +161,9 @@ function SBRequests() {
     try {
       const res = await fetch(`${API_URL}/api/sb-requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           title: reqTitle,
           description: reqDescription || null,
@@ -150,8 +174,8 @@ function SBRequests() {
           status: reqStatus,
           date_started: null,
           date_resolved: null,
-          remarks: reqRemarks || null,
-        }),
+          remarks: reqRemarks || null
+        })
       })
 
       if (!res.ok) {
@@ -194,26 +218,53 @@ function SBRequests() {
     setEditingStatus(r.status)
     setEditingRemarks(r.remarks ?? '')
     setEditingDateResolved(r.date_resolved ?? '')
+    setEditingError('')
+  }
+
+  const cancelEditing = () => {
+    setEditingId(null)
+    setEditingError('')
   }
 
   const saveEdit = async (requestId: string) => {
+    setEditingError('')
+
+    if (
+      !editingTitle.trim() ||
+      !editingPriority ||
+      !editingDateRequested ||
+      !editingStatus
+    ) {
+      setEditingError(
+        'Title, priority, date requested, and status are required.'
+      )
+      return
+    }
+
+    setEditingSaving(true)
+
     try {
-      const res = await fetch(`${API_URL}/api/sb-requests/${requestId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: editingTitle,
-          description: editingDescription || null,
-          priority: editingPriority,
-          date_requested: editingDateRequested,
-          proposed_date: editingProposedDate || null,
-          assigned_team: editingAssignedTeam || null,
-          status: editingStatus,
-          date_started: null,
-          date_resolved: editingDateResolved || null,
-          remarks: editingRemarks || null,
-        }),
-      })
+      const res = await fetch(
+        `${API_URL}/api/sb-requests/${requestId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title: editingTitle,
+            description: editingDescription || null,
+            priority: editingPriority,
+            date_requested: editingDateRequested,
+            proposed_date: editingProposedDate || null,
+            assigned_team: editingAssignedTeam || null,
+            status: editingStatus,
+            date_started: null,
+            date_resolved: editingDateResolved || null,
+            remarks: editingRemarks || null
+          })
+        }
+      )
 
       if (!res.ok) {
         const errorText = await res.text()
@@ -227,11 +278,13 @@ function SBRequests() {
     } catch (error) {
       console.error('Error updating SB request:', error)
 
-      alert(
+      setEditingError(
         error instanceof Error
           ? error.message
           : 'Failed to update SB request.'
       )
+    } finally {
+      setEditingSaving(false)
     }
   }
 
@@ -248,7 +301,9 @@ function SBRequests() {
   })
 
   const handleDelete = async () => {
-    if (!confirmDeleteId) return
+    if (!confirmDeleteId) {
+      return
+    }
 
     try {
       const res = await fetch(
@@ -260,7 +315,9 @@ function SBRequests() {
 
       if (!res.ok) {
         const errorText = await res.text()
-        throw new Error(errorText || 'Failed to delete SB request.')
+        throw new Error(
+          errorText || 'Failed to delete SB request.'
+        )
       }
 
       setConfirmDeleteId(null)
@@ -279,15 +336,24 @@ function SBRequests() {
   }
 
   const statusTone = (status: string) => {
-    if (status === 'Resolved') return 'green'
-    if (status === 'Cancelled') return 'gray'
+    if (status === 'Resolved') {
+      return 'green'
+    }
+
+    if (status === 'Cancelled') {
+      return 'gray'
+    }
 
     return 'yellow'
   }
 
   const countdownBadge = (days: number | null) => {
     if (days === null) {
-      return <span className="text-slate-400 text-xs">—</span>
+      return (
+        <span className="text-slate-400 text-xs">
+          —
+        </span>
+      )
     }
 
     if (days < 0) {
@@ -299,19 +365,31 @@ function SBRequests() {
     }
 
     if (days === 0) {
-      return <Badge tone="red">Due today</Badge>
+      return (
+        <Badge tone="red">
+          Due today
+        </Badge>
+      )
     }
 
     if (days <= 3) {
-      return <Badge tone="yellow">{days}d left</Badge>
+      return (
+        <Badge tone="yellow">
+          {days}d left
+        </Badge>
+      )
     }
 
-    return <Badge tone="gray">{days}d left</Badge>
+    return (
+      <Badge tone="gray">
+        {days}d left
+      </Badge>
+    )
   }
 
   return (
     <div className="flex-1 p-8">
-      <div className="max-w-6xl space-y-8">
+      <div className="max-w-4xl space-y-8">
 
         <PageHeader
           title="SB Requests"
@@ -349,23 +427,31 @@ function SBRequests() {
                   </p>
                 ) : (
                   <ul className="space-y-3">
-                    {sbAnalytics.oldest_pending_requests.map((r, i) => (
-                      <li
-                        key={r.id}
-                        className="flex justify-between items-center text-sm"
-                      >
-                        <span className="text-slate-700">
-                          {i + 1}. {r.title}{' '}
-                          <span className="text-slate-400 text-xs">
-                            ({r.priority})
+                    {sbAnalytics.oldest_pending_requests.map(
+                      (r, i) => (
+                        <li
+                          key={r.id}
+                          className="flex justify-between items-center text-sm"
+                        >
+                          <span className="text-slate-700">
+                            {i + 1}. {r.title}{' '}
+                            <span className="text-slate-400 text-xs">
+                              ({r.priority})
+                            </span>
                           </span>
-                        </span>
 
-                        <Badge tone={r.age_days > 10 ? 'red' : 'gray'}>
-                          {r.age_days} days
-                        </Badge>
-                      </li>
-                    ))}
+                          <Badge
+                            tone={
+                              r.age_days > 10
+                                ? 'red'
+                                : 'gray'
+                            }
+                          >
+                            {r.age_days} days
+                          </Badge>
+                        </li>
+                      )
+                    )}
                   </ul>
                 )}
               </CardBody>
@@ -377,33 +463,42 @@ function SBRequests() {
           <CardHeader title="Add SB Request" />
 
           <CardBody>
-            <input
-              type="text"
-              value={reqTitle}
-              onChange={(e) => setReqTitle(e.target.value)}
-              placeholder="Title"
-              className={`w-full mb-3 ${inputClass}`}
-            />
+            <div className="mb-3">
+              <Field label="Title">
+                <input
+                  type="text"
+                  value={reqTitle}
+                  onChange={(e) =>
+                    setReqTitle(e.target.value)
+                  }
+                  placeholder="Short summary of the request"
+                  className={`w-full ${inputClass}`}
+                />
+              </Field>
+            </div>
 
-            <textarea
-              value={reqDescription}
-              onChange={(e) => setReqDescription(e.target.value)}
-              placeholder="Description (optional)"
-              className={`w-full mb-3 ${inputClass}`}
-              rows={2}
-            />
+            <div className="mb-3">
+              <Field label="Description">
+                <textarea
+                  value={reqDescription}
+                  onChange={(e) =>
+                    setReqDescription(e.target.value)
+                  }
+                  placeholder="Optional details"
+                  className={`w-full ${inputClass}`}
+                  rows={2}
+                />
+              </Field>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-3">
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Priority
-                </label>
-
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <Field label="Priority">
                 <select
                   value={reqPriority}
-                  onChange={(e) => setReqPriority(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) =>
+                    setReqPriority(e.target.value)
+                  }
+                  className={`w-full ${inputClass}`}
                 >
                   {PRIORITIES.map((p) => (
                     <option key={p} value={p}>
@@ -411,57 +506,49 @@ function SBRequests() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Date Requested
-                </label>
-
+              <Field label="Date Requested">
                 <input
                   type="date"
                   value={reqDateRequested}
-                  onChange={(e) => setReqDateRequested(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) =>
+                    setReqDateRequested(e.target.value)
+                  }
+                  className={`w-full ${inputClass}`}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Proposed Date
-                </label>
-
+              <Field label="Proposed Date">
                 <input
                   type="date"
                   value={reqProposedDate}
-                  onChange={(e) => setReqProposedDate(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) =>
+                    setReqProposedDate(e.target.value)
+                  }
+                  className={`w-full ${inputClass}`}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Assigned Team
-                </label>
-
+              <Field label="Assigned Team">
                 <input
                   type="text"
                   value={reqAssignedTeam}
-                  onChange={(e) => setReqAssignedTeam(e.target.value)}
-                  placeholder="Assigned Team (optional)"
-                  className={inputClass}
+                  onChange={(e) =>
+                    setReqAssignedTeam(e.target.value)
+                  }
+                  placeholder="Optional"
+                  className={`w-full ${inputClass}`}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Status
-                </label>
-
+              <Field label="Status">
                 <select
                   value={reqStatus}
-                  onChange={(e) => setReqStatus(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) =>
+                    setReqStatus(e.target.value)
+                  }
+                  className={`w-full ${inputClass}`}
                 >
                   {STATUSES.map((s) => (
                     <option key={s} value={s}>
@@ -469,17 +556,22 @@ function SBRequests() {
                     </option>
                   ))}
                 </select>
-              </div>
-
+              </Field>
             </div>
 
-            <input
-              type="text"
-              value={reqRemarks}
-              onChange={(e) => setReqRemarks(e.target.value)}
-              placeholder="Remarks (optional)"
-              className={`w-full mb-3 ${inputClass}`}
-            />
+            <div className="mb-3">
+              <Field label="Remarks">
+                <input
+                  type="text"
+                  value={reqRemarks}
+                  onChange={(e) =>
+                    setReqRemarks(e.target.value)
+                  }
+                  placeholder="Optional"
+                  className={`w-full ${inputClass}`}
+                />
+              </Field>
+            </div>
 
             {reqError && (
               <div className="mb-3 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 text-sm border border-rose-100">
@@ -503,7 +595,6 @@ function SBRequests() {
 
           <CardBody className="!p-4 border-b border-slate-100">
             <div className="flex flex-wrap items-center gap-2">
-
               <span className="text-sm font-medium text-slate-600">
                 Requested Date Range:
               </span>
@@ -511,7 +602,9 @@ function SBRequests() {
               <input
                 type="date"
                 value={filterStartDate}
-                onChange={(e) => setFilterStartDate(e.target.value)}
+                onChange={(e) =>
+                  setFilterStartDate(e.target.value)
+                }
                 className={inputClass}
               />
 
@@ -522,7 +615,9 @@ function SBRequests() {
               <input
                 type="date"
                 value={filterEndDate}
-                onChange={(e) => setFilterEndDate(e.target.value)}
+                onChange={(e) =>
+                  setFilterEndDate(e.target.value)
+                }
                 className={inputClass}
               />
 
@@ -537,11 +632,10 @@ function SBRequests() {
                   Clear
                 </button>
               )}
-
             </div>
           </CardBody>
 
-          <CardBody className="!p-0 overflow-x-auto">
+          <CardBody className="!p-0">
             <Table>
               <TableHead
                 columns={[
@@ -558,177 +652,280 @@ function SBRequests() {
 
               <tbody>
                 {filteredRequests.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={`border-b border-slate-50 last:border-0 align-top transition-all duration-200 ${
-                      editingId === r.id ? 'bg-blue-50/50' : ''
-                    }`}
-                  >
-                    {editingId === r.id ? (
-                      <>
-                        <td className="px-3 py-3 min-w-[140px]">
-                          <input
-                            type="text"
-                            value={editingTitle}
-                            onChange={(e) => setEditingTitle(e.target.value)}
-                            className={`w-full ${inputClass} text-sm`}
-                            placeholder="Title"
-                          />
-                        </td>
+                  <Fragment key={r.id}>
+                    <tr
+                      className={`border-b border-slate-50 last:border-0 ${
+                        editingId === r.id
+                          ? 'bg-blue-50/40'
+                          : ''
+                      }`}
+                    >
+                      <td className="px-5 py-3.5 text-slate-800">
+                        {r.title}
+                      </td>
 
-                        <td className="px-3 py-3 min-w-[130px]">
-                          <input
-                            type="date"
-                            value={editingDateRequested}
-                            onChange={(e) => setEditingDateRequested(e.target.value)}
-                            className={`${inputClass} text-sm w-full`}
-                          />
-                        </td>
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {r.date_requested}
+                      </td>
 
-                        <td className="px-3 py-3 min-w-[130px]">
-                          <input
-                            type="date"
-                            value={editingProposedDate}
-                            onChange={(e) => setEditingProposedDate(e.target.value)}
-                            className={`${inputClass} text-sm w-full`}
-                          />
-                        </td>
-
-                        <td className="px-3 py-3 min-w-[100px]">
-                          <select
-                            value={editingPriority}
-                            onChange={(e) => setEditingPriority(e.target.value)}
-                            className={`${inputClass} text-sm w-full`}
-                          >
-                            {PRIORITIES.map((p) => (
-                              <option key={p} value={p}>{p}</option>
-                            ))}
-                          </select>
-                        </td>
-
-                        <td className="px-3 py-3 min-w-[120px]">
-                          <input
-                            type="text"
-                            value={editingAssignedTeam}
-                            onChange={(e) => setEditingAssignedTeam(e.target.value)}
-                            className={`w-full ${inputClass} text-sm`}
-                            placeholder="Team"
-                          />
-                        </td>
-
-                        <td className="px-3 py-3 min-w-[120px]">
-                          <select
-                            value={editingStatus}
-                            onChange={(e) => setEditingStatus(e.target.value)}
-                            className={`${inputClass} text-sm w-full`}
-                          >
-                            {STATUSES.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                        </td>
-
-                        <td className="px-3 py-3 min-w-[130px]">
-                          <input
-                            type="date"
-                            value={editingDateResolved}
-                            onChange={(e) => setEditingDateResolved(e.target.value)}
-                            className={`${inputClass} text-sm w-full`}
-                            placeholder="Resolved"
-                          />
-                        </td>
-
-                        <td className="px-3 py-3 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => saveEdit(r.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium rounded-md transition-colors"
-                            >
-                              <Check size={14} />
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setEditingId(null)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-medium rounded-md transition-colors"
-                            >
-                              <X size={14} />
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-5 py-3.5 text-slate-800 font-medium">
-                          {r.title}
-                        </td>
-
-                        <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap">
-                          {r.date_requested}
-                        </td>
-
-                        <td className="px-5 py-3.5">
-                          {r.proposed_date ? (
-                            <div>
-                              <div className="text-slate-500 text-xs whitespace-nowrap">
-                                {r.proposed_date}
-                              </div>
-                              {countdownBadge(r.days_until_proposed)}
+                      <td className="px-5 py-3.5">
+                        {r.proposed_date ? (
+                          <div>
+                            <div className="text-slate-500 text-xs">
+                              {r.proposed_date}
                             </div>
+
+                            {countdownBadge(
+                              r.days_until_proposed
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-xs">
+                            —
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {r.priority}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {r.assigned_team ?? '—'}
+                      </td>
+
+                      <td className="px-5 py-3.5">
+                        <Badge tone={statusTone(r.status)}>
+                          {r.status}
+                        </Badge>
+                      </td>
+
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {r.resolution_days !== null
+                          ? r.resolution_days === 0
+                            ? 'Same day'
+                            : `${r.resolution_days} day${
+                                r.resolution_days === 1
+                                  ? ''
+                                  : 's'
+                              }`
+                          : '—'}
+                      </td>
+
+                      <td className="px-5 py-3.5 text-right">
+                        <div className="flex justify-end gap-1">
+                          {editingId === r.id ? (
+                            <button
+                              onClick={cancelEditing}
+                              className="text-slate-400 hover:text-slate-600 p-1"
+                            >
+                              <X size={15} />
+                            </button>
                           ) : (
-                            <span className="text-slate-400 text-xs">—</span>
+                            <>
+                              <button
+                                onClick={() =>
+                                  startEditing(r)
+                                }
+                                className="text-slate-400 hover:text-blue-600 p-1"
+                              >
+                                <Pencil size={15} />
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  setConfirmDeleteId(r.id)
+                                }
+                                className="text-slate-400 hover:text-rose-600 p-1"
+                              >
+                                <Archive size={15} />
+                              </button>
+                            </>
                           )}
-                        </td>
+                        </div>
+                      </td>
+                    </tr>
 
-                        <td className="px-5 py-3.5 text-slate-500">
-                          <Badge tone={
-                            r.priority === 'Critical' ? 'red' :
-                            r.priority === 'High' ? 'orange' :
-                            r.priority === 'Medium' ? 'yellow' : 'gray'
-                          }>
-                            {r.priority}
-                          </Badge>
-                        </td>
+                    {editingId === r.id && (
+                      <tr className="bg-blue-50/40 border-b border-slate-100">
+                        <td
+                          colSpan={8}
+                          className="px-5 py-5"
+                        >
+                          <div className="bg-white rounded-xl border border-slate-200 p-5">
 
-                        <td className="px-5 py-3.5 text-slate-500">
-                          {r.assigned_team ?? '—'}
-                        </td>
+                            <div className="mb-4">
+                              <Field label="Title">
+                                <input
+                                  type="text"
+                                  value={editingTitle}
+                                  onChange={(e) =>
+                                    setEditingTitle(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+                            </div>
 
-                        <td className="px-5 py-3.5">
-                          <Badge tone={statusTone(r.status)}>
-                            {r.status}
-                          </Badge>
-                        </td>
+                            <div className="mb-4">
+                              <Field label="Description">
+                                <textarea
+                                  value={editingDescription}
+                                  onChange={(e) =>
+                                    setEditingDescription(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                  rows={2}
+                                />
+                              </Field>
+                            </div>
 
-                        <td className="px-5 py-3.5 text-slate-500">
-                          {r.resolution_days !== null
-                            ? r.resolution_days === 0
-                              ? 'Same day'
-                              : `${r.resolution_days} day${r.resolution_days === 1 ? '' : 's'}`
-                            : '—'}
-                        </td>
+                            <div className="grid grid-cols-3 gap-4 mb-4">
+                              <Field label="Priority">
+                                <select
+                                  value={editingPriority}
+                                  onChange={(e) =>
+                                    setEditingPriority(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                >
+                                  {PRIORITIES.map((p) => (
+                                    <option
+                                      key={p}
+                                      value={p}
+                                    >
+                                      {p}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
 
-                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => startEditing(r)}
-                              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-md transition-all"
-                              title="Edit"
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(r.id)}
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-md transition-all"
-                              title="Delete"
-                            >
-                              <Archive size={15} />
-                            </button>
+                              <Field label="Date Requested">
+                                <input
+                                  type="date"
+                                  value={editingDateRequested}
+                                  onChange={(e) =>
+                                    setEditingDateRequested(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+
+                              <Field label="Proposed Date">
+                                <input
+                                  type="date"
+                                  value={editingProposedDate}
+                                  onChange={(e) =>
+                                    setEditingProposedDate(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+
+                              <Field label="Assigned Team">
+                                <input
+                                  type="text"
+                                  value={editingAssignedTeam}
+                                  onChange={(e) =>
+                                    setEditingAssignedTeam(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+
+                              <Field label="Status">
+                                <select
+                                  value={editingStatus}
+                                  onChange={(e) =>
+                                    setEditingStatus(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                >
+                                  {STATUSES.map((s) => (
+                                    <option
+                                      key={s}
+                                      value={s}
+                                    >
+                                      {s}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+
+                              <Field label="Date Resolved">
+                                <input
+                                  type="date"
+                                  value={editingDateResolved}
+                                  onChange={(e) =>
+                                    setEditingDateResolved(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+                            </div>
+
+                            <div className="mb-4">
+                              <Field label="Remarks">
+                                <input
+                                  type="text"
+                                  value={editingRemarks}
+                                  onChange={(e) =>
+                                    setEditingRemarks(
+                                      e.target.value
+                                    )
+                                  }
+                                  className={`w-full ${inputClass}`}
+                                />
+                              </Field>
+                            </div>
+
+                            {editingError && (
+                              <div className="mb-4 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 text-sm border border-rose-100">
+                                {editingError}
+                              </div>
+                            )}
+
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="secondary"
+                                onClick={cancelEditing}
+                              >
+                                Cancel
+                              </Button>
+
+                              <Button
+                                onClick={() =>
+                                  saveEdit(r.id)
+                                }
+                                disabled={editingSaving}
+                              >
+                                {editingSaving
+                                  ? 'Saving…'
+                                  : 'Save Changes'}
+                              </Button>
+                            </div>
+
                           </div>
                         </td>
-                      </>
+                      </tr>
                     )}
-                  </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </Table>
@@ -742,7 +939,6 @@ function SBRequests() {
           onConfirm={handleDelete}
           onCancel={() => setConfirmDeleteId(null)}
         />
-
       </div>
     </div>
   )
