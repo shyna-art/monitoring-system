@@ -75,10 +75,23 @@ def archive_depot(depot_id: str):
 
 @app.post("/api/truckers")
 def create_trucker(trucker: TruckerCreate):
+    existing = supabase.table("truckers").select(
+        "id, name, depot_id"
+    ).eq(
+        "depot_id", trucker.depot_id
+    ).eq(
+        "is_active", True
+    ).execute()
+
+    for t in existing.data:
+        if t["name"].strip().lower() == trucker.name.strip().lower():
+            return [t]
+
     result = supabase.table("truckers").insert({
         "name": trucker.name,
         "depot_id": trucker.depot_id
     }).execute()
+
     return result.data
 
 @app.get("/api/truckers")
@@ -105,10 +118,23 @@ def archive_trucker(trucker_id: str):
 
 @app.post("/api/drivers")
 def create_driver(driver: DriverCreate):
+    existing = supabase.table("drivers").select(
+        "id, name, trucker_id"
+    ).eq(
+        "trucker_id", driver.trucker_id
+    ).eq(
+        "is_active", True
+    ).execute()
+
+    for d in existing.data:
+        if d["name"].strip().lower() == driver.name.strip().lower():
+            return [d]
+
     result = supabase.table("drivers").insert({
         "name": driver.name,
         "trucker_id": driver.trucker_id
     }).execute()
+
     return result.data
 
 @app.get("/api/drivers")
@@ -741,50 +767,224 @@ class BulkTruckerCreate(BaseModel):
 
 @app.post("/api/truckers/bulk")
 def bulk_create_truckers(payload: BulkTruckerCreate):
-    depots_result = supabase.table("depots").select("id, name").eq("is_active", True).execute()
-    depot_lookup = {d["name"].strip().lower(): d["id"] for d in depots_result.data}
+    depots_result = supabase.table("depots").select(
+        "id, name"
+    ).eq("is_active", True).execute()
+
+    depot_lookup = {
+        d["name"].strip().lower(): d["id"]
+        for d in depots_result.data
+    }
+
+    existing_result = supabase.table("truckers").select(
+        "id, name, depot_id"
+    ).eq("is_active", True).execute()
+
+    existing_lookup = {
+        (t["name"].strip().lower(), t["depot_id"]): t
+        for t in existing_result.data
+    }
 
     created = []
+    existing = []
     skipped = []
 
     for item in payload.items:
-        depot_id = depot_lookup.get(item.depot_name.strip().lower())
+        depot_id = depot_lookup.get(
+            item.depot_name.strip().lower()
+        )
+
         if not depot_id:
-            skipped.append({"name": item.name, "reason": f"Depot '{item.depot_name}' not found"})
+            skipped.append({
+                "name": item.name,
+                "depot_name": item.depot_name,
+                "reason": f"Depot '{item.depot_name}' not found"
+            })
             continue
+
+        key = (
+            item.name.strip().lower(),
+            depot_id
+        )
+
+        # Already exists in this depot
+        if key in existing_lookup:
+            existing.append({
+                "name": item.name,
+                "depot_name": item.depot_name,
+                "trucker_id": existing_lookup[key]["id"]
+            })
+            continue
+
+        # Create new trucker
         result = supabase.table("truckers").insert({
             "name": item.name,
             "depot_id": depot_id
         }).execute()
-        created.append(item.name)
 
-    return {"created": created, "skipped": skipped}
+        if result.data:
+            new_trucker = result.data[0]
+
+            existing_lookup[key] = new_trucker
+
+            created.append({
+                "name": item.name,
+                "depot_name": item.depot_name,
+                "trucker_id": new_trucker["id"]
+            })
+
+    return {
+        "created": created,
+        "existing": existing,
+        "skipped": skipped
+    }
 
 
 class BulkDriverItem(BaseModel):
     name: str
     trucker_name: str
+    depot_name: str
 
 class BulkDriverCreate(BaseModel):
     items: list[BulkDriverItem]
 
 @app.post("/api/drivers/bulk")
 def bulk_create_drivers(payload: BulkDriverCreate):
-    truckers_result = supabase.table("truckers").select("id, name").eq("is_active", True).execute()
-    trucker_lookup = {t["name"].strip().lower(): t["id"] for t in truckers_result.data}
+    truckers_result = supabase.table("truckers").select(
+        "id, name, depot_id"
+    ).eq("is_active", True).execute()
+
+    depots_result = supabase.table("depots").select(
+        "id, name"
+    ).eq("is_active", True).execute()
+
+    depot_lookup = {
+        d["name"].strip().lower(): d["id"]
+        for d in depots_result.data
+    }
+
+    trucker_lookup = {
+        (
+            t["name"].strip().lower(),
+            t["depot_id"]
+        ): t["id"]
+        for t in truckers_result.data
+    }
+
+    existing_result = supabase.table("drivers").select(
+        "id, name, trucker_id"
+    ).eq("is_active", True).execute()
+
+    existing_lookup = {
+        (
+            d["name"].strip().lower(),
+            d["trucker_id"]
+        ): d
+        for d in existing_result.data
+    }
 
     created = []
+    existing = []
     skipped = []
 
     for item in payload.items:
-        trucker_id = trucker_lookup.get(item.trucker_name.strip().lower())
-        if not trucker_id:
-            skipped.append({"name": item.name, "reason": f"Trucker '{item.trucker_name}' not found"})
+
+        depot_id = depot_lookup.get(
+            item.depot_name.strip().lower()
+        )
+
+        if not depot_id:
+            skipped.append({
+                "name": item.name,
+                "trucker_name": item.trucker_name,
+                "depot_name": item.depot_name,
+                "reason": f"Depot '{item.depot_name}' not found"
+            })
             continue
+
+        trucker_id = trucker_lookup.get(
+            (
+                item.trucker_name.strip().lower(),
+                depot_id
+            )
+        )
+
+        if not trucker_id:
+            skipped.append({
+                "name": item.name,
+                "trucker_name": item.trucker_name,
+                "depot_name": item.depot_name,
+                "reason": (
+                    f"Trucker '{item.trucker_name}' "
+                    f"not found at depot '{item.depot_name}'"
+                )
+            })
+            continue
+
+        driver_key = (
+            item.name.strip().lower(),
+            trucker_id
+        )
+
+        # Driver already exists under this trucker
+        if driver_key in existing_lookup:
+            existing.append({
+                "name": item.name,
+                "trucker_name": item.trucker_name,
+                "depot_name": item.depot_name,
+                "driver_id": existing_lookup[driver_key]["id"]
+            })
+            continue
+
+        # Create new driver
         result = supabase.table("drivers").insert({
             "name": item.name,
             "trucker_id": trucker_id
         }).execute()
-        created.append(item.name)
 
-    return {"created": created, "skipped": skipped}
+        if result.data:
+            new_driver = result.data[0]
+
+            existing_lookup[driver_key] = new_driver
+
+            created.append({
+                "name": item.name,
+                "trucker_name": item.trucker_name,
+                "depot_name": item.depot_name,
+                "driver_id": new_driver["id"]
+            })
+
+    return {
+        "created": created,
+        "existing": existing,
+        "skipped": skipped
+    }
+
+@app.post("/api/truckers/dedupe")
+def dedupe_truckers():
+    all_truckers = supabase.table("truckers").select("id, name, depot_id, created_at").eq("is_active", True).execute().data
+
+    groups = {}
+    for t in all_truckers:
+        key = (t["name"].strip().lower(), t["depot_id"])
+        groups.setdefault(key, []).append(t)
+
+    merged_count = 0
+    archived_count = 0
+
+    for key, group in groups.items():
+        if len(group) <= 1:
+            continue
+
+        group_sorted = sorted(group, key=lambda x: x["created_at"])
+        keeper = group_sorted[0]
+        duplicates = group_sorted[1:]
+
+        for dup in duplicates:
+            supabase.table("drivers").update({"trucker_id": keeper["id"]}).eq("trucker_id", dup["id"]).execute()
+            supabase.table("truckers").update({"is_active": False}).eq("id", dup["id"]).execute()
+            archived_count += 1
+
+        merged_count += 1
+
+    return {"merged_groups": merged_count, "archived_duplicates": archived_count}
