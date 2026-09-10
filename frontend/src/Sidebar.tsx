@@ -13,11 +13,14 @@ function Sidebar() {
   return (
     <div className="w-64 bg-white border-r border-slate-200 min-h-screen flex flex-col">
       <div className="px-5 py-5 border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            M
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm tracking-tight">
+            TMS
           </div>
-          <span className="text-base font-semibold text-slate-900">Monitoring System</span>
+          <div>
+            <div className="text-sm font-semibold text-slate-900 leading-tight">TMS Monitoring</div>
+            <div className="text-[11px] text-slate-400 leading-tight">Fleet & System Tracker</div>
+          </div>
         </div>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">

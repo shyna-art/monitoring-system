@@ -186,7 +186,7 @@ from datetime import date
 class DriverMonitoringCreate(BaseModel):
     driver_id: str
     monitoring_date: date
-    status: str  # "Using" | "Not Using" | "Not Monitored"
+    status: str  # "Using" | "Not Using" | "No Delivery"
     reason_id: Optional[str] = None
     remarks: Optional[str] = None
 
@@ -223,7 +223,7 @@ class SBRequestCreate(BaseModel):
 
 @app.post("/api/driver-monitoring")
 def create_driver_monitoring(record: DriverMonitoringCreate):
-    if record.status not in ["Using", "Not Using", "Not Monitored"]:
+    if record.status not in ["Using", "Not Using", "No Delivery"]:
         return {"error": "Invalid status"}
     if record.status == "Not Using" and not record.reason_id:
         return {"error": "Reason is required when status is 'Not Using'"}
@@ -246,7 +246,7 @@ def list_driver_monitoring():
 
 @app.put("/api/driver-monitoring/{record_id}")
 def update_driver_monitoring(record_id: str, record: DriverMonitoringCreate):
-    if record.status not in ["Using", "Not Using", "Not Monitored"]:
+    if record.status not in ["Using", "Not Using", "No Delivery"]:
         return {"error": "Invalid status"}
     if record.status == "Not Using" and not record.reason_id:
         return {"error": "Reason is required when status is 'Not Using'"}
@@ -988,3 +988,226 @@ def dedupe_truckers():
         merged_count += 1
 
     return {"merged_groups": merged_count, "archived_duplicates": archived_count}
+
+@app.get("/api/driver-monitoring/by-depot-date")
+def get_monitoring_by_depot_date(depot_id: str, monitoring_date: str):
+    drivers_result = supabase.table("drivers").select(
+        "id, name, trucker_id, truckers(id, name, depot_id)"
+    ).eq("is_active", True).execute()
+
+    depot_drivers = [
+        d for d in drivers_result.data
+        if d.get("truckers") and d["truckers"]["depot_id"] == depot_id
+    ]
+
+    driver_ids = [d["id"] for d in depot_drivers]
+    existing_records = {}
+    if driver_ids:
+        monitoring_result = supabase.table("driver_monitoring").select(
+            "id, driver_id, status, reason_id, remarks"
+        ).eq("monitoring_date", monitoring_date).in_("driver_id", driver_ids).execute()
+        for m in monitoring_result.data:
+            existing_records[m["driver_id"]] = m
+
+    rows = []
+    for d in depot_drivers:
+        existing = existing_records.get(d["id"])
+        if existing:
+            status = existing["status"]
+            delivery = "No" if status == "No Delivery" else "Yes"
+        else:
+            status = "Using"
+            delivery = "Yes"
+        rows.append({
+            "driver_id": d["id"],
+            "driver_name": d["name"],
+            "trucker_name": d["truckers"]["name"],
+            "delivery": delivery,
+            "status": status,
+            "reason_id": existing["reason_id"] if existing else None,
+            "remarks": existing["remarks"] if existing else None,
+        })
+
+    return {"drivers": rows, "already_monitored": len(existing_records) > 0}
+
+
+class BatchMonitoringItem(BaseModel):
+    driver_id: str
+    delivery: str  # "Yes" | "No"
+    status: str    # "Using" | "Not Using" | "No Delivery"
+    reason_id: Optional[str] = None
+    remarks: Optional[str] = None
+
+class BatchMonitoringCreate(BaseModel):
+    monitoring_date: date
+    items: list[BatchMonitoringItem]
+
+@app.post("/api/driver-monitoring/batch")
+def batch_save_monitoring(payload: BatchMonitoringCreate):
+    errors = []
+    saved = 0
+
+    for item in payload.items:
+        if item.delivery == "No":
+            final_status = "No Delivery"
+            reason_id = None
+        else:
+            if item.status not in ["Using", "Not Using"]:
+                errors.append({"driver_id": item.driver_id, "error": "Status must be Using or Not Using when Delivery is Yes"})
+                continue
+            if item.status == "Not Using" and not item.reason_id:
+                errors.append({"driver_id": item.driver_id, "error": "Reason required for Not Using"})
+                continue
+            final_status = item.status
+            reason_id = item.reason_id
+
+        existing = supabase.table("driver_monitoring").select("id").eq(
+            "driver_id", item.driver_id
+        ).eq("monitoring_date", payload.monitoring_date.isoformat()).execute()
+
+        record_data = {
+            "driver_id": item.driver_id,
+            "monitoring_date": payload.monitoring_date.isoformat(),
+            "status": final_status,
+            "reason_id": reason_id,
+            "remarks": item.remarks,
+        }
+
+        if existing.data:
+            supabase.table("driver_monitoring").update(record_data).eq("id", existing.data[0]["id"]).execute()
+        else:
+            supabase.table("driver_monitoring").insert(record_data).execute()
+        saved += 1
+
+    return {"saved": saved, "errors": errors}
+
+
+@app.get("/api/analytics/driver-app-usage")
+def driver_app_usage_analytics(start_date: str = None, end_date: str = None, depot_id: str = None):
+    query = supabase.table("driver_monitoring").select(
+        "driver_id, monitoring_date, status, drivers(id, name, trucker_id, truckers(id, name, depot_id, depots(id, name)))"
+    )
+    if start_date:
+        query = query.gte("monitoring_date", start_date)
+    if end_date:
+        query = query.lte("monitoring_date", end_date)
+    result = query.execute()
+    records = result.data
+
+    if depot_id:
+        records = [
+            r for r in records
+            if r.get("drivers") and r["drivers"].get("truckers")
+            and r["drivers"]["truckers"]["depot_id"] == depot_id
+        ]
+
+    using = sum(1 for r in records if r["status"] == "Using")
+    not_using = sum(1 for r in records if r["status"] == "Not Using")
+    no_delivery = sum(1 for r in records if r["status"] == "No Delivery")
+    eligible = using + not_using
+
+    usage_rate = round((using / eligible) * 100, 1) if eligible > 0 else 0
+    non_usage_rate = round((not_using / eligible) * 100, 1) if eligible > 0 else 0
+
+    # By month
+    by_month = {}
+    for r in records:
+        month_key = r["monitoring_date"][:7]  # YYYY-MM
+        if month_key not in by_month:
+            by_month[month_key] = {"using": 0, "not_using": 0, "no_delivery": 0}
+        if r["status"] == "Using":
+            by_month[month_key]["using"] += 1
+        elif r["status"] == "Not Using":
+            by_month[month_key]["not_using"] += 1
+        else:
+            by_month[month_key]["no_delivery"] += 1
+
+    monthly_breakdown = []
+    for month, counts in sorted(by_month.items()):
+        elig = counts["using"] + counts["not_using"]
+        monthly_breakdown.append({
+            "month": month,
+            "eligible_driver_days": elig,
+            "using": counts["using"],
+            "not_using": counts["not_using"],
+            "no_delivery": counts["no_delivery"],
+            "usage_rate": round((counts["using"] / elig) * 100, 1) if elig > 0 else 0,
+        })
+
+    # By depot
+    by_depot = {}
+    for r in records:
+        if not r.get("drivers") or not r["drivers"].get("truckers") or not r["drivers"]["truckers"].get("depots"):
+            continue
+        depot_name = r["drivers"]["truckers"]["depots"]["name"]
+        if depot_name not in by_depot:
+            by_depot[depot_name] = {"using": 0, "not_using": 0, "no_delivery": 0}
+        if r["status"] == "Using":
+            by_depot[depot_name]["using"] += 1
+        elif r["status"] == "Not Using":
+            by_depot[depot_name]["not_using"] += 1
+        else:
+            by_depot[depot_name]["no_delivery"] += 1
+
+    depot_breakdown = []
+    for depot_name, counts in by_depot.items():
+        elig = counts["using"] + counts["not_using"]
+        depot_breakdown.append({
+            "depot": depot_name,
+            "eligible_driver_days": elig,
+            "using": counts["using"],
+            "not_using": counts["not_using"],
+            "no_delivery": counts["no_delivery"],
+            "usage_rate": round((counts["using"] / elig) * 100, 1) if elig > 0 else 0,
+        })
+
+    # By driver
+    by_driver = {}
+    for r in records:
+        if not r.get("drivers"):
+            continue
+        driver_name = r["drivers"]["name"]
+        if driver_name not in by_driver:
+            by_driver[driver_name] = {"using": 0, "not_using": 0}
+        if r["status"] == "Using":
+            by_driver[driver_name]["using"] += 1
+        elif r["status"] == "Not Using":
+            by_driver[driver_name]["not_using"] += 1
+
+    driver_breakdown = []
+    for driver_name, counts in by_driver.items():
+        elig = counts["using"] + counts["not_using"]
+        if elig == 0:
+            continue
+        driver_breakdown.append({
+            "driver": driver_name,
+            "eligible_days": elig,
+            "using": counts["using"],
+            "not_using": counts["not_using"],
+            "usage_rate": round((counts["using"] / elig) * 100, 1),
+        })
+    driver_breakdown.sort(key=lambda x: x["usage_rate"])
+
+    return {
+        "overall": {
+            "eligible_driver_days": eligible,
+            "using": using,
+            "not_using": not_using,
+            "no_delivery": no_delivery,
+            "usage_rate": usage_rate,
+            "non_usage_rate": non_usage_rate,
+        },
+        "by_month": monthly_breakdown,
+        "by_depot": depot_breakdown,
+        "by_driver": driver_breakdown,
+    }
+
+class BulkDeleteMonitoring(BaseModel):
+    ids: list[str]
+
+@app.post("/api/driver-monitoring/bulk-delete")
+def bulk_delete_monitoring(payload: BulkDeleteMonitoring):
+    if not payload.ids:
+        return {"deleted": 0}
+    supabase.table("driver_monitoring").delete().in_("id", payload.ids).execute()
+    return {"deleted": len(payload.ids)}
