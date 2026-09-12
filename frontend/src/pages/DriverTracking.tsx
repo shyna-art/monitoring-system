@@ -490,26 +490,14 @@ const toggleSelectMon = (id: string) => {
 }
 
 const toggleSelectAllMon = () => {
-  const allFilteredSelected =
-    filteredMonitoringRecords.length > 0 &&
-    filteredMonitoringRecords.every((rec) => selectedMonIds.has(rec.id))
-
-  setSelectedMonIds((prev) => {
-    const next = new Set(prev)
-
-    if (allFilteredSelected) {
-      filteredMonitoringRecords.forEach((rec) => next.delete(rec.id))
-    } else {
-      filteredMonitoringRecords.forEach((rec) => next.add(rec.id))
-    }
-
-    return next
-  })
+  if (selectedMonIds.size === filteredMonitoringRecords.length) {
+    setSelectedMonIds(new Set())
+  } else {
+    setSelectedMonIds(new Set(filteredMonitoringRecords.map((r) => r.id)))
+  }
 }
 
 const handleBulkDeleteMon = async () => {
-  if (selectedMonIds.size === 0) return
-
   await fetch(`${API_URL}/api/driver-monitoring/bulk-delete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -598,7 +586,6 @@ const handleExportReport = () => {
     exportToExcel('usage-report-by-driver', 'By Driver', driverData)
   }
 }
-
   // --- Monitoring history filters ---
   const filteredMonitoringRecords = monitoringRecords.filter((rec) => {
     if (filterStartDate && rec.monitoring_date < filterStartDate) return false
@@ -1089,7 +1076,24 @@ const handleExportReport = () => {
             </CardBody>
             <CardBody className="!p-0">
               <Table>
-               <TableHead columns={['', 'Driver', 'Date', 'Status', 'Reason', 'Remarks', '']} />
+              <thead>
+  <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+    <th className="px-5 py-3 font-medium">
+      <input
+        type="checkbox"
+        checked={selectedMonIds.size === filteredMonitoringRecords.length && filteredMonitoringRecords.length > 0}
+        onChange={toggleSelectAllMon}
+        className="rounded border-slate-300"
+      />
+    </th>
+    <th className="px-5 py-3 font-medium">Driver</th>
+    <th className="px-5 py-3 font-medium">Date</th>
+    <th className="px-5 py-3 font-medium">Status</th>
+    <th className="px-5 py-3 font-medium">Reason</th>
+    <th className="px-5 py-3 font-medium">Remarks</th>
+    <th className="px-5 py-3 font-medium"></th>
+  </tr>
+</thead>
                 <tbody>
   {filteredMonitoringRecords.map((rec) => (
     <tr key={rec.id} className="border-b border-slate-50 last:border-0 align-top">
