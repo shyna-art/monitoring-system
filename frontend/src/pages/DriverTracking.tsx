@@ -489,14 +489,6 @@ const toggleSelectMon = (id: string) => {
   })
 }
 
-const toggleSelectAllMon = () => {
-  if (selectedMonIds.size === filteredMonitoringRecords.length) {
-    setSelectedMonIds(new Set())
-  } else {
-    setSelectedMonIds(new Set(filteredMonitoringRecords.map((r) => r.id)))
-  }
-}
-
 const handleBulkDeleteMon = async () => {
   await fetch(`${API_URL}/api/driver-monitoring/bulk-delete`, {
     method: 'POST',
@@ -1082,7 +1074,13 @@ const handleExportReport = () => {
       <input
         type="checkbox"
         checked={selectedMonIds.size === filteredMonitoringRecords.length && filteredMonitoringRecords.length > 0}
-        onChange={toggleSelectAllMon}
+        onChange={() => {
+          if (selectedMonIds.size === filteredMonitoringRecords.length) {
+            setSelectedMonIds(new Set())
+          } else {
+            setSelectedMonIds(new Set(filteredMonitoringRecords.map((r) => r.id)))
+          }
+        }}
         className="rounded border-slate-300"
       />
     </th>
