@@ -80,9 +80,56 @@ interface DailyMonitoringRow {
   remarks: string | null
 }
 
+interface UsageReport {
+  overall: { eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number; non_usage_rate: number }
+  by_month: { month: string; eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number }[]
+  by_depot: { depot: string; eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number }[]
+  by_driver: { driver: string; eligible_days: number; using: number; not_using: number; usage_rate: number }[]
+}
+
+interface ReasonBreakdown {
+  reason: string
+  count: number
+  percentage: number
+}
+interface NonUsageReasonsData {
+  total_not_using_records: number
+  breakdown: ReasonBreakdown[]
+}
+interface OffenderRecord {
+  date: string
+  reason: string | null
+  remarks: string | null
+}
+interface Offender {
+  driver_id: string
+  driver_name: string
+  trucker_name: string | null
+  depot_name: string | null
+  count: number
+  records: OffenderRecord[]
+}
+interface RepeatOffendersData {
+  offenders: Offender[]
+  min_count: number
+}
+
 const API_URL = import.meta.env.VITE_API_URL
 
+type TabKey = 'daily' | 'analytics' | 'reports' | 'boss' | 'history' | 'management'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'daily', label: 'Daily Monitoring' },
+  { key: 'analytics', label: 'Analytics' },
+  { key: 'reports', label: 'Usage Reports' },
+  { key: 'boss', label: 'Boss Report' },
+  { key: 'history', label: 'History' },
+  { key: 'management', label: 'Management' },
+]
+
 function DriverTracking() {
+  const [activeTab, setActiveTab] = useState<TabKey>('daily')
+
   const [depots, setDepots] = useState<Depot[]>([])
   const [newDepotName, setNewDepotName] = useState('')
   const [depotLoading, setDepotLoading] = useState(false)
@@ -142,7 +189,7 @@ function DriverTracking() {
   const [truckerUploading, setTruckerUploading] = useState(false)
   const [driverUploading, setDriverUploading] = useState(false)
 
-  // --- Depot Daily Monitoring (new workflow) ---
+  // --- Depot Daily Monitoring ---
   const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0])
   const [dailyDepotId, setDailyDepotId] = useState('')
   const [dailyRows, setDailyRows] = useState<DailyMonitoringRow[]>([])
@@ -152,22 +199,22 @@ function DriverTracking() {
   const [dailyMessage, setDailyMessage] = useState('')
   const [dailyAlreadyMonitored, setDailyAlreadyMonitored] = useState(false)
 
-// --- Bulk delete for history ---
-const [selectedMonIds, setSelectedMonIds] = useState<Set<string>>(new Set())
-const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  // --- Bulk delete for history ---
+  const [selectedMonIds, setSelectedMonIds] = useState<Set<string>>(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
-// --- Reports ---
-interface UsageReport {
-  overall: { eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number; non_usage_rate: number }
-  by_month: { month: string; eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number }[]
-  by_depot: { depot: string; eligible_driver_days: number; using: number; not_using: number; no_delivery: number; usage_rate: number }[]
-  by_driver: { driver: string; eligible_days: number; using: number; not_using: number; usage_rate: number }[]
-}
-const [reportStart, setReportStart] = useState('')
-const [reportEnd, setReportEnd] = useState('')
-const [reportDepotId, setReportDepotId] = useState('')
-const [report, setReport] = useState<UsageReport | null>(null)
-const [reportLoading, setReportLoading] = useState(false)
+  // --- Usage Reports ---
+  const [reportStart, setReportStart] = useState('')
+  const [reportEnd, setReportEnd] = useState('')
+  const [reportDepotId, setReportDepotId] = useState('')
+  const [report, setReport] = useState<UsageReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
+  // --- Boss Report ---
+  const [reasonsData, setReasonsData] = useState<NonUsageReasonsData | null>(null)
+  const [offendersData, setOffendersData] = useState<RepeatOffendersData | null>(null)
+  const [bossReportLoading, setBossReportLoading] = useState(false)
+  const [minOffenderCount, setMinOffenderCount] = useState(3)
 
   const fetchAnalytics = async () => {
     const res = await fetch(`${API_URL}/api/analytics/driver-tracking`)
@@ -219,8 +266,6 @@ const [reportLoading, setReportLoading] = useState(false)
     fetchAnalytics()
   }, [])
 
-
-  
   // --- Depot Daily Monitoring handlers ---
   const fetchDailyMonitoring = async (depotId: string, dateStr: string) => {
     setDailyLoading(true)
@@ -344,28 +389,34 @@ const [reportLoading, setReportLoading] = useState(false)
     setTruckerUploading(true)
     setTruckerUploadResult(null)
 
-    const data = await file.arrayBuffer()
-    const workbook = XLSX.read(data)
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
 
-    const items = rows
-      .map((row) => ({
-        name: String(row.Name || row.name || '').trim(),
-        depot_name: String(row.Depot || row.depot || '').trim(),
-      }))
-      .filter((item) => item.name && item.depot_name)
+      const items = rows
+        .map((row) => ({
+          name: String(row.Name || row.name || '').trim(),
+          depot_name: String(row.Depot || row.depot || '').trim(),
+        }))
+        .filter((item) => item.name && item.depot_name)
 
-    const res = await fetch(`${API_URL}/api/truckers/bulk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    })
-    const result = await res.json()
-    setTruckerUploadResult(result)
-    await fetchTruckers()
-    setTruckerUploading(false)
-    e.target.value = ''
+      const res = await fetch(`${API_URL}/api/truckers/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      const result = await res.json()
+      setTruckerUploadResult(result)
+      await fetchTruckers()
+    } catch (err) {
+      console.error('Trucker upload failed:', err)
+      setTruckerUploadResult({ created: [], existing: [], skipped: [{ name: '—', reason: 'Upload failed — check console/network tab.' }] })
+    } finally {
+      setTruckerUploading(false)
+      e.target.value = ''
+    }
   }
 
   const handleDriverFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -375,29 +426,35 @@ const [reportLoading, setReportLoading] = useState(false)
     setDriverUploading(true)
     setDriverUploadResult(null)
 
-    const data = await file.arrayBuffer()
-    const workbook = XLSX.read(data)
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
 
-    const items = rows
-      .map((row) => ({
-        name: String(row.Name || row.name || '').trim(),
-        trucker_name: String(row.Trucker || row.trucker || '').trim(),
-        depot_name: String(row.Depot || row.depot || '').trim(),
-      }))
-      .filter((item) => item.name && item.trucker_name && item.depot_name)
+      const items = rows
+        .map((row) => ({
+          name: String(row.Name || row.name || '').trim(),
+          trucker_name: String(row.Trucker || row.trucker || '').trim(),
+          depot_name: String(row.Depot || row.depot || '').trim(),
+        }))
+        .filter((item) => item.name && item.trucker_name && item.depot_name)
 
-    const res = await fetch(`${API_URL}/api/drivers/bulk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    })
-    const result = await res.json()
-    setDriverUploadResult(result)
-    await fetchDrivers()
-    setDriverUploading(false)
-    e.target.value = ''
+      const res = await fetch(`${API_URL}/api/drivers/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      const result = await res.json()
+      setDriverUploadResult(result)
+      await fetchDrivers()
+    } catch (err) {
+      console.error('Driver upload failed:', err)
+      setDriverUploadResult({ created: [], existing: [], skipped: [{ name: '—', reason: 'Upload failed — check console/network tab.' }] })
+    } finally {
+      setDriverUploading(false)
+      e.target.value = ''
+    }
   }
 
   // --- Trucker handlers ---
@@ -479,105 +536,157 @@ const [reportLoading, setReportLoading] = useState(false)
     )
   })
 
-// --- Bulk delete handlers ---
-const toggleSelectMon = (id: string) => {
-  setSelectedMonIds((prev) => {
-    const next = new Set(prev)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  })
-}
-
-const handleBulkDeleteMon = async () => {
-  await fetch(`${API_URL}/api/driver-monitoring/bulk-delete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: Array.from(selectedMonIds) }),
-  })
-  setSelectedMonIds(new Set())
-  setConfirmBulkDelete(false)
-  await fetchMonitoringRecords()
-  await fetchAnalytics()
-}
-
-// --- Export history ---
-const handleExportHistory = () => {
-  const data = filteredMonitoringRecords.map((rec) => ({
-    Date: rec.monitoring_date,
-    Driver: rec.drivers?.name ?? 'Unknown',
-    Trucker: rec.drivers?.truckers?.name ?? '—',
-    Depot: rec.drivers?.truckers?.depots?.name ?? '—',
-    Status: rec.status,
-    Reason: rec.driver_non_usage_reasons?.reason ?? '—',
-    Remarks: rec.remarks ?? '—',
-  }))
-  exportToExcel('driver-monitoring-history', 'Monitoring History', data)
-}
-
-// --- Reports ---
-const fetchReport = async () => {
-  setReportLoading(true)
-  const params = new URLSearchParams()
-  if (reportStart) params.set('start_date', reportStart)
-  if (reportEnd) params.set('end_date', reportEnd)
-  if (reportDepotId) {
-    const depotName = depots.find((d) => d.id === reportDepotId)?.name
-    if (depotName) params.set('depot_id', reportDepotId)
+  // --- Bulk delete handlers ---
+  const toggleSelectMon = (id: string) => {
+    setSelectedMonIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
-  const res = await fetch(`${API_URL}/api/analytics/driver-app-usage?${params.toString()}`)
-  setReport(await res.json())
-  setReportLoading(false)
-}
 
-const handleExportReport = () => {
-  if (!report) return
+  const handleBulkDeleteMon = async () => {
+    await fetch(`${API_URL}/api/driver-monitoring/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selectedMonIds) }),
+    })
+    setSelectedMonIds(new Set())
+    setConfirmBulkDelete(false)
+    await fetchMonitoringRecords()
+    await fetchAnalytics()
+  }
 
-  const summarySheet = [{
-    'Eligible Driver-Days': report.overall.eligible_driver_days,
-    Using: report.overall.using,
-    'Not Using': report.overall.not_using,
-    'No Delivery': report.overall.no_delivery,
-    'Usage Rate (%)': report.overall.usage_rate,
-    'Non-Usage Rate (%)': report.overall.non_usage_rate,
-  }]
-  exportToExcel('usage-report-summary', 'Summary', summarySheet)
-
-  if (report.by_month.length > 0) {
-    const monthData = report.by_month.map((m) => ({
-      Month: m.month,
-      'Eligible Driver-Days': m.eligible_driver_days,
-      Using: m.using,
-      'Not Using': m.not_using,
-      'No Delivery': m.no_delivery,
-      'Usage Rate (%)': m.usage_rate,
+  // --- Export history ---
+  const handleExportHistory = () => {
+    const data = filteredMonitoringRecords.map((rec) => ({
+      Date: rec.monitoring_date,
+      Driver: rec.drivers?.name ?? 'Unknown',
+      Trucker: rec.drivers?.truckers?.name ?? '—',
+      Depot: rec.drivers?.truckers?.depots?.name ?? '—',
+      Status: rec.status,
+      Reason: rec.driver_non_usage_reasons?.reason ?? '—',
+      Remarks: rec.remarks ?? '—',
     }))
-    exportToExcel('usage-report-by-month', 'By Month', monthData)
+    exportToExcel('driver-monitoring-history', 'Monitoring History', data)
   }
 
-  if (report.by_depot.length > 0) {
-    const depotData = report.by_depot.map((d) => ({
-      Depot: d.depot,
-      'Eligible Driver-Days': d.eligible_driver_days,
-      Using: d.using,
-      'Not Using': d.not_using,
-      'No Delivery': d.no_delivery,
-      'Usage Rate (%)': d.usage_rate,
-    }))
-    exportToExcel('usage-report-by-depot', 'By Depot', depotData)
+  // --- Usage Reports ---
+  const fetchReport = async () => {
+    setReportLoading(true)
+    const params = new URLSearchParams()
+    if (reportStart) params.set('start_date', reportStart)
+    if (reportEnd) params.set('end_date', reportEnd)
+    if (reportDepotId) {
+      const depotName = depots.find((d) => d.id === reportDepotId)?.name
+      if (depotName) params.set('depot_id', reportDepotId)
+    }
+    const res = await fetch(`${API_URL}/api/analytics/driver-app-usage?${params.toString()}`)
+    setReport(await res.json())
+    setReportLoading(false)
   }
 
-  if (report.by_driver.length > 0) {
-    const driverData = report.by_driver.map((d) => ({
-      Driver: d.driver,
-      'Eligible Days': d.eligible_days,
-      Using: d.using,
-      'Not Using': d.not_using,
-      'Usage Rate (%)': d.usage_rate,
-    }))
-    exportToExcel('usage-report-by-driver', 'By Driver', driverData)
+  const handleExportReport = () => {
+    if (!report) return
+
+    const summarySheet = [{
+      'Eligible Driver-Days': report.overall.eligible_driver_days,
+      Using: report.overall.using,
+      'Not Using': report.overall.not_using,
+      'No Delivery': report.overall.no_delivery,
+      'Usage Rate (%)': report.overall.usage_rate,
+      'Non-Usage Rate (%)': report.overall.non_usage_rate,
+    }]
+    exportToExcel('usage-report-summary', 'Summary', summarySheet)
+
+    if (report.by_month.length > 0) {
+      const monthData = report.by_month.map((m) => ({
+        Month: m.month,
+        'Eligible Driver-Days': m.eligible_driver_days,
+        Using: m.using,
+        'Not Using': m.not_using,
+        'No Delivery': m.no_delivery,
+        'Usage Rate (%)': m.usage_rate,
+      }))
+      exportToExcel('usage-report-by-month', 'By Month', monthData)
+    }
+
+    if (report.by_depot.length > 0) {
+      const depotData = report.by_depot.map((d) => ({
+        Depot: d.depot,
+        'Eligible Driver-Days': d.eligible_driver_days,
+        Using: d.using,
+        'Not Using': d.not_using,
+        'No Delivery': d.no_delivery,
+        'Usage Rate (%)': d.usage_rate,
+      }))
+      exportToExcel('usage-report-by-depot', 'By Depot', depotData)
+    }
+
+    if (report.by_driver.length > 0) {
+      const driverData = report.by_driver.map((d) => ({
+        Driver: d.driver,
+        'Eligible Days': d.eligible_days,
+        Using: d.using,
+        'Not Using': d.not_using,
+        'Usage Rate (%)': d.usage_rate,
+      }))
+      exportToExcel('usage-report-by-driver', 'By Driver', driverData)
+    }
   }
-}
+
+  // --- Boss Report ---
+  const fetchBossReport = async () => {
+    setBossReportLoading(true)
+    const params = new URLSearchParams()
+    if (reportStart) params.set('start_date', reportStart)
+    if (reportEnd) params.set('end_date', reportEnd)
+
+    const reasonsRes = await fetch(`${API_URL}/api/analytics/non-usage-reasons?${params.toString()}`)
+    setReasonsData(await reasonsRes.json())
+
+    const offParams = new URLSearchParams(params)
+    offParams.set('min_count', String(minOffenderCount))
+    const offRes = await fetch(`${API_URL}/api/analytics/repeat-offenders?${offParams.toString()}`)
+    setOffendersData(await offRes.json())
+
+    setBossReportLoading(false)
+  }
+
+  const handleExportBossReport = () => {
+    if (!reasonsData || !offendersData) return
+
+    exportToExcel('boss-report-summary', 'Summary', [{
+      'Usage Rate (%)': report?.overall.usage_rate ?? '—',
+      'Non-Usage Rate (%)': report?.overall.non_usage_rate ?? '—',
+      'Total Not-Using Records': reasonsData.total_not_using_records,
+      [`Repeat Offenders (>=${offendersData.min_count})`]: offendersData.offenders.length,
+    }])
+
+    exportToExcel('boss-report-reasons', 'Non-Usage Reasons', reasonsData.breakdown.map((r) => ({
+      Reason: r.reason,
+      Count: r.count,
+      'Percentage (%)': r.percentage,
+    })))
+
+    const offenderRows: any[] = []
+    offendersData.offenders.forEach((o) => {
+      o.records.forEach((rec) => {
+        offenderRows.push({
+          Driver: o.driver_name,
+          Trucker: o.trucker_name ?? '—',
+          Depot: o.depot_name ?? '—',
+          'Total Non-Usage': o.count,
+          Date: rec.date,
+          Reason: rec.reason ?? '—',
+          Remarks: rec.remarks ?? '—',
+        })
+      })
+    })
+    exportToExcel('boss-report-offenders', 'Repeat Offenders', offenderRows)
+  }
+
   // --- Monitoring history filters ---
   const filteredMonitoringRecords = monitoringRecords.filter((rec) => {
     if (filterStartDate && rec.monitoring_date < filterStartDate) return false
@@ -646,171 +755,188 @@ const handleExportReport = () => {
   const statusBadgeTone = (status: string) => {
     if (status === 'Using') return 'green'
     if (status === 'Not Using') return 'red'
-    return 'gray' // No Delivery / Not Monitored (legacy)
+    return 'gray'
   }
 
   return (
     <div className="flex-1 p-8">
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-5xl space-y-6">
         <PageHeader title="Driver Tracking" description="Monitor depots, manage the driver hierarchy, and track daily app usage." />
 
-        {/* DEPOT DAILY MONITORING — primary workflow */}
-        <section>
-          <h2 className="text-base font-semibold text-slate-800 mb-3">Depot Daily Monitoring</h2>
-          <Card className="mb-4">
-            <CardBody>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Monitoring Date</label>
+        {/* TAB NAV */}
+        <div className="flex flex-wrap gap-1 border-b border-slate-200">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition -mb-px border-b-2 ${
+                activeTab === tab.key
+                  ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* DAILY MONITORING TAB */}
+        {activeTab === 'daily' && (
+          <section>
+            <Card className="mb-4">
+              <CardBody>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Monitoring Date</label>
+                    <input
+                      type="date"
+                      value={dailyDate}
+                      onChange={(e) => setDailyDate(e.target.value)}
+                      className={`w-full ${inputClass}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Depot</label>
+                    <select
+                      value={dailyDepotId}
+                      onChange={(e) => setDailyDepotId(e.target.value)}
+                      className={`w-full ${inputClass}`}
+                    >
+                      <option value="">Select Depot</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {dailyDepotId && dailyDate && (
                   <input
-                    type="date"
-                    value={dailyDate}
-                    onChange={(e) => setDailyDate(e.target.value)}
+                    type="text"
+                    value={dailySearch}
+                    onChange={(e) => setDailySearch(e.target.value)}
+                    placeholder="Search driver or trucker…"
                     className={`w-full ${inputClass}`}
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Depot</label>
-                  <select
-                    value={dailyDepotId}
-                    onChange={(e) => setDailyDepotId(e.target.value)}
-                    className={`w-full ${inputClass}`}
-                  >
-                    <option value="">Select Depot</option>
-                    {depots.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                )}
+              </CardBody>
+            </Card>
 
-              {dailyDepotId && dailyDate && (
-                <input
-                  type="text"
-                  value={dailySearch}
-                  onChange={(e) => setDailySearch(e.target.value)}
-                  placeholder="Search driver or trucker…"
-                  className={`w-full ${inputClass}`}
-                />
-              )}
-            </CardBody>
-          </Card>
-
-          {!dailyDepotId || !dailyDate ? (
-            <Card>
-              <CardBody>
-                <p className="text-sm text-slate-400 text-center py-6">
-                  Select a date and depot to begin monitoring.
-                </p>
-              </CardBody>
-            </Card>
-          ) : dailyLoading ? (
-            <Card>
-              <CardBody>
-                <p className="text-sm text-slate-400 text-center py-6">Loading drivers…</p>
-              </CardBody>
-            </Card>
-          ) : dailyRows.length === 0 ? (
-            <Card>
-              <CardBody>
-                <p className="text-sm text-slate-400 text-center py-6">
-                  This depot has no active drivers yet.
-                </p>
-              </CardBody>
-            </Card>
-          ) : (
-            <Card>
-              {dailyAlreadyMonitored && (
-                <div className="px-5 py-2.5 bg-blue-50 border-b border-blue-100 text-xs text-blue-700">
-                  This depot already has saved monitoring for this date — showing existing results. Saving again will update them.
-                </div>
-              )}
-              <CardBody className="!p-0">
-                <Table>
-                  <TableHead columns={['Driver', 'Trucker', 'Delivery?', 'Driver App Status', 'Reason', 'Remarks']} />
-                  <tbody>
-                    {filteredDailyRows.map((row) => (
-                      <tr key={row.driver_id} className="border-b border-slate-50 last:border-0 align-top">
-                        <td className="px-5 py-3 text-slate-800">{row.driver_name}</td>
-                        <td className="px-5 py-3 text-slate-500">{row.trucker_name}</td>
-                        <td className="px-5 py-3">
-                          <select
-                            value={row.delivery}
-                            onChange={(e) => handleDeliveryChange(row.driver_id, e.target.value as 'Yes' | 'No')}
-                            className={inputClass}
-                          >
-                            <option value="Yes">Yes</option>
-                            <option value="No">No</option>
-                          </select>
-                        </td>
-                        <td className="px-5 py-3">
-                          {row.delivery === 'No' ? (
-                            <Badge tone="gray">No Delivery</Badge>
-                          ) : (
+            {!dailyDepotId || !dailyDate ? (
+              <Card>
+                <CardBody>
+                  <p className="text-sm text-slate-400 text-center py-6">
+                    Select a date and depot to begin monitoring.
+                  </p>
+                </CardBody>
+              </Card>
+            ) : dailyLoading ? (
+              <Card>
+                <CardBody>
+                  <p className="text-sm text-slate-400 text-center py-6">Loading drivers…</p>
+                </CardBody>
+              </Card>
+            ) : dailyRows.length === 0 ? (
+              <Card>
+                <CardBody>
+                  <p className="text-sm text-slate-400 text-center py-6">
+                    This depot has no active drivers yet.
+                  </p>
+                </CardBody>
+              </Card>
+            ) : (
+              <Card>
+                {dailyAlreadyMonitored && (
+                  <div className="px-5 py-2.5 bg-blue-50 border-b border-blue-100 text-xs text-blue-700">
+                    This depot already has saved monitoring for this date — showing existing results. Saving again will update them.
+                  </div>
+                )}
+                <CardBody className="!p-0">
+                  <Table>
+                    <TableHead columns={['Driver', 'Trucker', 'Delivery?', 'Driver App Status', 'Reason', 'Remarks']} />
+                    <tbody>
+                      {filteredDailyRows.map((row) => (
+                        <tr key={row.driver_id} className="border-b border-slate-50 last:border-0 align-top">
+                          <td className="px-5 py-3 text-slate-800">{row.driver_name}</td>
+                          <td className="px-5 py-3 text-slate-500">{row.trucker_name}</td>
+                          <td className="px-5 py-3">
                             <select
-                              value={row.status}
-                              onChange={(e) =>
-                                updateDailyRow(row.driver_id, {
-                                  status: e.target.value,
-                                  reason_id: e.target.value === 'Using' ? null : row.reason_id,
-                                })
-                              }
+                              value={row.delivery}
+                              onChange={(e) => handleDeliveryChange(row.driver_id, e.target.value as 'Yes' | 'No')}
                               className={inputClass}
                             >
-                              <option value="Using">Using</option>
-                              <option value="Not Using">Not Using</option>
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
                             </select>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          {row.delivery === 'Yes' && row.status === 'Not Using' ? (
-                            <select
-                              value={row.reason_id ?? ''}
-                              onChange={(e) => updateDailyRow(row.driver_id, { reason_id: e.target.value || null })}
-                              className={inputClass}
-                            >
-                              <option value="">Select Reason</option>
-                              {reasons.filter((r) => r.is_active).map((r) => (
-                                <option key={r.id} value={r.id}>{r.reason}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          <input
-                            type="text"
-                            value={row.remarks ?? ''}
-                            onChange={(e) => updateDailyRow(row.driver_id, { remarks: e.target.value })}
-                            placeholder="Optional"
-                            className={`w-full ${inputClass}`}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </CardBody>
-              <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-sm text-slate-500">
-                  {filteredDailyRows.length} of {dailyRows.length} driver{dailyRows.length === 1 ? '' : 's'}
-                </span>
-                <div className="flex items-center gap-3">
-                  {dailyMessage && <span className="text-xs text-slate-500">{dailyMessage}</span>}
-                  <Button onClick={handleSaveDailyMonitoring} disabled={dailySaving}>
-                    {dailySaving ? 'Saving…' : 'Save Monitoring'}
-                  </Button>
+                          </td>
+                          <td className="px-5 py-3">
+                            {row.delivery === 'No' ? (
+                              <Badge tone="gray">No Delivery</Badge>
+                            ) : (
+                              <select
+                                value={row.status}
+                                onChange={(e) =>
+                                  updateDailyRow(row.driver_id, {
+                                    status: e.target.value,
+                                    reason_id: e.target.value === 'Using' ? null : row.reason_id,
+                                  })
+                                }
+                                className={inputClass}
+                              >
+                                <option value="Using">Using</option>
+                                <option value="Not Using">Not Using</option>
+                              </select>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            {row.delivery === 'Yes' && row.status === 'Not Using' ? (
+                              <select
+                                value={row.reason_id ?? ''}
+                                onChange={(e) => updateDailyRow(row.driver_id, { reason_id: e.target.value || null })}
+                                className={inputClass}
+                              >
+                                <option value="">Select Reason</option>
+                                {reasons.filter((r) => r.is_active).map((r) => (
+                                  <option key={r.id} value={r.id}>{r.reason}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            <input
+                              type="text"
+                              value={row.remarks ?? ''}
+                              onChange={(e) => updateDailyRow(row.driver_id, { remarks: e.target.value })}
+                              placeholder="Optional"
+                              className={`w-full ${inputClass}`}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+                <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-sm text-slate-500">
+                    {filteredDailyRows.length} of {dailyRows.length} driver{dailyRows.length === 1 ? '' : 's'}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    {dailyMessage && <span className="text-xs text-slate-500">{dailyMessage}</span>}
+                    <Button onClick={handleSaveDailyMonitoring} disabled={dailySaving}>
+                      {dailySaving ? 'Saving…' : 'Save Monitoring'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          )}
-        </section>
+              </Card>
+            )}
+          </section>
+        )}
 
-        {/* ANALYTICS */}
-        {analytics && (
+        {/* ANALYTICS TAB */}
+        {activeTab === 'analytics' && analytics && (
           <section>
-            <h2 className="text-base font-semibold text-slate-800 mb-3">Driver Tracking Summary</h2>
             <div className="grid grid-cols-4 gap-4 mb-4">
               <StatCard label="Total Drivers" value={analytics.overall.total_drivers} />
               <StatCard label={`Usage Rate (${analytics.overall.using})`} value={`${analytics.overall.usage_rate}%`} tone="green" />
@@ -888,538 +1014,629 @@ const handleExportReport = () => {
           </section>
         )}
 
-{/* MONITORING REPORTS */}
-<section>
-  <h2 className="text-base font-semibold text-slate-800 mb-3">Monitoring Reports</h2>
-  <Card className="mb-4">
-    <CardHeader title="Generate Report" />
-    <CardBody>
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">From</label>
-          <input type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} className={`w-full ${inputClass}`} />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">To</label>
-          <input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className={`w-full ${inputClass}`} />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">Depot</label>
-          <select value={reportDepotId} onChange={(e) => setReportDepotId(e.target.value)} className={`w-full ${inputClass}`}>
-            <option value="">All Depots</option>
-            {depots.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button onClick={fetchReport} disabled={reportLoading || !reportStart || !reportEnd}>
-          {reportLoading ? 'Generating…' : 'Generate Report'}
-        </Button>
-        {report && <ExportButton onClick={handleExportReport} />}
-      </div>
-      {!reportStart || !reportEnd ? (
-        <p className="text-xs text-slate-400 mt-2">Pick a date range to generate a report (e.g. a full month or year).</p>
-      ) : null}
-    </CardBody>
-  </Card>
+        {/* USAGE REPORTS TAB */}
+        {activeTab === 'reports' && (
+          <section>
+            <Card className="mb-4">
+              <CardHeader title="Generate Report" />
+              <CardBody>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">From</label>
+                    <input type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} className={`w-full ${inputClass}`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">To</label>
+                    <input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className={`w-full ${inputClass}`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Depot</label>
+                    <select value={reportDepotId} onChange={(e) => setReportDepotId(e.target.value)} className={`w-full ${inputClass}`}>
+                      <option value="">All Depots</option>
+                      {depots.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button onClick={fetchReport} disabled={reportLoading || !reportStart || !reportEnd}>
+                    {reportLoading ? 'Generating…' : 'Generate Report'}
+                  </Button>
+                  {report && <ExportButton onClick={handleExportReport} />}
+                </div>
+                {!reportStart || !reportEnd ? (
+                  <p className="text-xs text-slate-400 mt-2">Pick a date range to generate a report (e.g. a full month or year). This range is also used by the Boss Report tab.</p>
+                ) : null}
+              </CardBody>
+            </Card>
 
-  {report && (
-    <>
-      <div className="grid grid-cols-5 gap-3 mb-4">
-        <StatCard label="Eligible Driver-Days" value={report.overall.eligible_driver_days} />
-        <StatCard label="Using" value={report.overall.using} tone="green" />
-        <StatCard label="Not Using" value={report.overall.not_using} tone="red" />
-        <StatCard label="No Delivery" value={report.overall.no_delivery} tone="gray" />
-        <StatCard label="Usage Rate" value={`${report.overall.usage_rate}%`} tone="green" />
-      </div>
+            {report && (
+              <>
+                <div className="grid grid-cols-5 gap-3 mb-4">
+                  <StatCard label="Eligible Driver-Days" value={report.overall.eligible_driver_days} />
+                  <StatCard label="Using" value={report.overall.using} tone="green" />
+                  <StatCard label="Not Using" value={report.overall.not_using} tone="red" />
+                  <StatCard label="No Delivery" value={report.overall.no_delivery} tone="gray" />
+                  <StatCard label="Usage Rate" value={`${report.overall.usage_rate}%`} tone="green" />
+                </div>
 
-      {report.by_month.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader title="By Month" />
-          <CardBody className="!p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
-                  <th className="px-5 py-3 font-medium">Month</th>
-                  <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
-                  <th className="px-5 py-3 font-medium text-center">Using</th>
-                  <th className="px-5 py-3 font-medium text-center">Not Using</th>
-                  <th className="px-5 py-3 font-medium text-center">No Delivery</th>
-                  <th className="px-5 py-3 font-medium text-center">Usage %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.by_month.map((m) => (
-                  <tr key={m.month} className="border-b border-slate-50 last:border-0">
-                    <td className="px-5 py-3 text-slate-800">{m.month}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{m.eligible_driver_days}</td>
-                    <td className="px-5 py-3 text-center text-emerald-600 font-medium">{m.using}</td>
-                    <td className="px-5 py-3 text-center text-rose-600 font-medium">{m.not_using}</td>
-                    <td className="px-5 py-3 text-center text-slate-500">{m.no_delivery}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{m.usage_rate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardBody>
-        </Card>
-      )}
+                {report.by_month.length > 0 && (
+                  <Card className="mb-4">
+                    <CardHeader title="By Month" />
+                    <CardBody className="!p-0">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                            <th className="px-5 py-3 font-medium">Month</th>
+                            <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
+                            <th className="px-5 py-3 font-medium text-center">Using</th>
+                            <th className="px-5 py-3 font-medium text-center">Not Using</th>
+                            <th className="px-5 py-3 font-medium text-center">No Delivery</th>
+                            <th className="px-5 py-3 font-medium text-center">Usage %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.by_month.map((m) => (
+                            <tr key={m.month} className="border-b border-slate-50 last:border-0">
+                              <td className="px-5 py-3 text-slate-800">{m.month}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{m.eligible_driver_days}</td>
+                              <td className="px-5 py-3 text-center text-emerald-600 font-medium">{m.using}</td>
+                              <td className="px-5 py-3 text-center text-rose-600 font-medium">{m.not_using}</td>
+                              <td className="px-5 py-3 text-center text-slate-500">{m.no_delivery}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{m.usage_rate}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardBody>
+                  </Card>
+                )}
 
-      {report.by_depot.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader title="By Depot" />
-          <CardBody className="!p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
-                  <th className="px-5 py-3 font-medium">Depot</th>
-                  <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
-                  <th className="px-5 py-3 font-medium text-center">Using</th>
-                  <th className="px-5 py-3 font-medium text-center">Not Using</th>
-                  <th className="px-5 py-3 font-medium text-center">Usage %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.by_depot.map((d) => (
-                  <tr key={d.depot} className="border-b border-slate-50 last:border-0">
-                    <td className="px-5 py-3 text-slate-800">{d.depot}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{d.eligible_driver_days}</td>
-                    <td className="px-5 py-3 text-center text-emerald-600 font-medium">{d.using}</td>
-                    <td className="px-5 py-3 text-center text-rose-600 font-medium">{d.not_using}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{d.usage_rate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardBody>
-        </Card>
-      )}
+                {report.by_depot.length > 0 && (
+                  <Card className="mb-4">
+                    <CardHeader title="By Depot" />
+                    <CardBody className="!p-0">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                            <th className="px-5 py-3 font-medium">Depot</th>
+                            <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
+                            <th className="px-5 py-3 font-medium text-center">Using</th>
+                            <th className="px-5 py-3 font-medium text-center">Not Using</th>
+                            <th className="px-5 py-3 font-medium text-center">Usage %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.by_depot.map((d) => (
+                            <tr key={d.depot} className="border-b border-slate-50 last:border-0">
+                              <td className="px-5 py-3 text-slate-800">{d.depot}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{d.eligible_driver_days}</td>
+                              <td className="px-5 py-3 text-center text-emerald-600 font-medium">{d.using}</td>
+                              <td className="px-5 py-3 text-center text-rose-600 font-medium">{d.not_using}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{d.usage_rate}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardBody>
+                  </Card>
+                )}
 
-      {report.by_driver.length > 0 && (
-        <Card>
-          <CardHeader title="By Driver (lowest usage first)" />
-          <CardBody className="!p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
-                  <th className="px-5 py-3 font-medium">Driver</th>
-                  <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
-                  <th className="px-5 py-3 font-medium text-center">Using</th>
-                  <th className="px-5 py-3 font-medium text-center">Not Using</th>
-                  <th className="px-5 py-3 font-medium text-center">Usage %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.by_driver.map((d) => (
-                  <tr key={d.driver} className="border-b border-slate-50 last:border-0">
-                    <td className="px-5 py-3 text-slate-800">{d.driver}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{d.eligible_days}</td>
-                    <td className="px-5 py-3 text-center text-emerald-600 font-medium">{d.using}</td>
-                    <td className="px-5 py-3 text-center text-rose-600 font-medium">{d.not_using}</td>
-                    <td className="px-5 py-3 text-center text-slate-800">{d.usage_rate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardBody>
-        </Card>
-      )}
-    </>
-  )}
-</section>
+                {report.by_driver.length > 0 && (
+                  <Card>
+                    <CardHeader title="By Driver (lowest usage first)" />
+                    <CardBody className="!p-0">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                            <th className="px-5 py-3 font-medium">Driver</th>
+                            <th className="px-5 py-3 font-medium text-center">Eligible Days</th>
+                            <th className="px-5 py-3 font-medium text-center">Using</th>
+                            <th className="px-5 py-3 font-medium text-center">Not Using</th>
+                            <th className="px-5 py-3 font-medium text-center">Usage %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.by_driver.map((d) => (
+                            <tr key={d.driver} className="border-b border-slate-50 last:border-0">
+                              <td className="px-5 py-3 text-slate-800">{d.driver}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{d.eligible_days}</td>
+                              <td className="px-5 py-3 text-center text-emerald-600 font-medium">{d.using}</td>
+                              <td className="px-5 py-3 text-center text-rose-600 font-medium">{d.not_using}</td>
+                              <td className="px-5 py-3 text-center text-slate-800">{d.usage_rate}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardBody>
+                  </Card>
+                )}
+              </>
+            )}
+          </section>
+        )}
 
-        {/* MONITORING HISTORY */}
-        <section>
-          <h2 className="text-base font-semibold text-slate-800 mb-3">Monitoring History</h2>
-          <Card>
-           <CardHeader
-  title={`Records (${filteredMonitoringRecords.length} of ${monitoringRecords.length})`}
-  action={
-    <div className="flex items-center gap-2">
-      {selectedMonIds.size > 0 && (
-        <Button variant="secondary" onClick={() => setConfirmBulkDelete(true)}>
-          Delete Selected ({selectedMonIds.size})
-        </Button>
-      )}
-      <ExportButton onClick={handleExportHistory} />
-    </div>
-  }
-/>
-            <CardBody className="!p-4 border-b border-slate-100">
-              <div className="grid grid-cols-4 gap-2">
-                <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className={inputClass} />
-                <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className={inputClass} />
-                <select value={filterDepotId} onChange={(e) => setFilterDepotId(e.target.value)} className={inputClass}>
-                  <option value="">All Depots</option>
-                  {depots.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <select value={filterTruckerId} onChange={(e) => setFilterTruckerId(e.target.value)} className={inputClass}>
-                  <option value="">All Truckers</option>
-                  {truckers.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name} ({t.depots?.name ?? 'Unknown Depot'})</option>
-                  ))}
-                </select>
-              </div>
-              {(filterStartDate || filterEndDate || filterDepotId || filterTruckerId) && (
-                <button onClick={clearFilters} className="text-xs text-blue-600 hover:text-blue-700 mt-2">
-                  Clear filters
-                </button>
-              )}
-            </CardBody>
-            <CardBody className="!p-0">
-              <Table>
-              <thead>
-  <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
-    <th className="px-5 py-3 font-medium">
-      <input
-        type="checkbox"
-        checked={selectedMonIds.size === filteredMonitoringRecords.length && filteredMonitoringRecords.length > 0}
-        onChange={() => {
-          if (selectedMonIds.size === filteredMonitoringRecords.length) {
-            setSelectedMonIds(new Set())
-          } else {
-            setSelectedMonIds(new Set(filteredMonitoringRecords.map((r) => r.id)))
-          }
-        }}
-        className="rounded border-slate-300"
-      />
-    </th>
-    <th className="px-5 py-3 font-medium">Driver</th>
-    <th className="px-5 py-3 font-medium">Date</th>
-    <th className="px-5 py-3 font-medium">Status</th>
-    <th className="px-5 py-3 font-medium">Reason</th>
-    <th className="px-5 py-3 font-medium">Remarks</th>
-    <th className="px-5 py-3 font-medium"></th>
-  </tr>
-</thead>
-                <tbody>
-  {filteredMonitoringRecords.map((rec) => (
-    <tr key={rec.id} className="border-b border-slate-50 last:border-0 align-top">
-      <td className="px-5 py-3.5">
-        <input
-          type="checkbox"
-          checked={selectedMonIds.has(rec.id)}
-          onChange={() => toggleSelectMon(rec.id)}
-          className="rounded border-slate-300"
-        />
-      </td>
-      <td className="px-5 py-3.5 text-slate-800">{rec.drivers?.name ?? 'Unknown Driver'}</td>
-                      {editingMonId === rec.id ? (
-                        <>
-                          <td className="px-5 py-3.5">
-                            <input type="date" value={editingMonDate} onChange={(e) => setEditingMonDate(e.target.value)} className={inputClass} />
+        {/* BOSS REPORT TAB */}
+        {activeTab === 'boss' && (
+          <section>
+            <Card className="mb-4">
+              <CardHeader title="Generate Boss Report" />
+              <CardBody>
+                <div className="flex items-center gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Min. records to flag as repeat offender</label>
+                    <input
+                      type="number"
+                      min={2}
+                      value={minOffenderCount}
+                      onChange={(e) => setMinOffenderCount(Number(e.target.value))}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-3">
+                  Uses the From/To dates set in the Usage Reports tab
+                  {reportStart && reportEnd ? ` (currently ${reportStart} to ${reportEnd}).` : ' — set those first.'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button onClick={fetchBossReport} disabled={bossReportLoading || !reportStart || !reportEnd}>
+                    {bossReportLoading ? 'Generating…' : 'Generate Boss Report'}
+                  </Button>
+                  {reasonsData && offendersData && <ExportButton onClick={handleExportBossReport} />}
+                </div>
+              </CardBody>
+            </Card>
+
+            {reasonsData && (
+              <Card className="mb-4">
+                <CardHeader title={`Why Drivers Aren't Using It (${reasonsData.total_not_using_records} records)`} />
+                <CardBody className="!p-0">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                        <th className="px-5 py-3 font-medium">Reason</th>
+                        <th className="px-5 py-3 font-medium text-center">Count</th>
+                        <th className="px-5 py-3 font-medium text-center">% of Non-Usage</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reasonsData.breakdown.map((r) => (
+                        <tr key={r.reason} className="border-b border-slate-50 last:border-0">
+                          <td className="px-5 py-3 text-slate-800">{r.reason}</td>
+                          <td className="px-5 py-3 text-center text-slate-800">{r.count}</td>
+                          <td className="px-5 py-3 text-center text-rose-600 font-medium">{r.percentage}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+            )}
+
+            {offendersData && (
+              <Card>
+                <CardHeader title={`Repeat Offenders (${offendersData.offenders.length} drivers, ≥${offendersData.min_count} records)`} />
+                <CardBody className="!p-0">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                        <th className="px-5 py-3 font-medium">Driver</th>
+                        <th className="px-5 py-3 font-medium">Trucker</th>
+                        <th className="px-5 py-3 font-medium">Depot</th>
+                        <th className="px-5 py-3 font-medium text-center">Non-Usage Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {offendersData.offenders.map((o) => (
+                        <tr key={o.driver_id} className="border-b border-slate-50 last:border-0">
+                          <td className="px-5 py-3 text-slate-800">{o.driver_name}</td>
+                          <td className="px-5 py-3 text-slate-500">{o.trucker_name ?? '—'}</td>
+                          <td className="px-5 py-3 text-slate-500">{o.depot_name ?? '—'}</td>
+                          <td className="px-5 py-3 text-center">
+                            <Badge tone="red">{o.count}</Badge>
                           </td>
-                          <td className="px-5 py-3.5">
-                            <select
-                              value={editingMonStatus}
-                              onChange={(e) => {
-                                setEditingMonStatus(e.target.value)
-                                if (e.target.value !== 'Not Using') setEditingMonReasonId('')
-                              }}
-                              className={inputClass}
-                            >
-                              <option value="Using">Using</option>
-                              <option value="Not Using">Not Using</option>
-                              <option value="No Delivery">No Delivery</option>
-                            </select>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            {editingMonStatus === 'Not Using' ? (
-                              <select value={editingMonReasonId} onChange={(e) => setEditingMonReasonId(e.target.value)} className={inputClass}>
-                                <option value="">Select Reason</option>
-                                {reasons.filter((r) => r.is_active).map((r) => (
-                                  <option key={r.id} value={r.id}>{r.reason}</option>
-                                ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+            )}
+          </section>
+        )}
+
+        {/* HISTORY TAB */}
+        {activeTab === 'history' && (
+          <section>
+            <Card>
+              <CardHeader
+                title={`Records (${filteredMonitoringRecords.length} of ${monitoringRecords.length})`}
+                action={
+                  <div className="flex items-center gap-2">
+                    {selectedMonIds.size > 0 && (
+                      <Button variant="secondary" onClick={() => setConfirmBulkDelete(true)}>
+                        Delete Selected ({selectedMonIds.size})
+                      </Button>
+                    )}
+                    <ExportButton onClick={handleExportHistory} />
+                  </div>
+                }
+              />
+              <CardBody className="!p-4 border-b border-slate-100">
+                <div className="grid grid-cols-4 gap-2">
+                  <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className={inputClass} />
+                  <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className={inputClass} />
+                  <select value={filterDepotId} onChange={(e) => setFilterDepotId(e.target.value)} className={inputClass}>
+                    <option value="">All Depots</option>
+                    {depots.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <select value={filterTruckerId} onChange={(e) => setFilterTruckerId(e.target.value)} className={inputClass}>
+                    <option value="">All Truckers</option>
+                    {truckers.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.depots?.name ?? 'Unknown Depot'})</option>
+                    ))}
+                  </select>
+                </div>
+                {(filterStartDate || filterEndDate || filterDepotId || filterTruckerId) && (
+                  <button onClick={clearFilters} className="text-xs text-blue-600 hover:text-blue-700 mt-2">
+                    Clear filters
+                  </button>
+                )}
+              </CardBody>
+              <CardBody className="!p-0">
+                <Table>
+                  <thead>
+                    <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                      <th className="px-5 py-3 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={selectedMonIds.size === filteredMonitoringRecords.length && filteredMonitoringRecords.length > 0}
+                          onChange={() => {
+                            if (selectedMonIds.size === filteredMonitoringRecords.length) {
+                              setSelectedMonIds(new Set())
+                            } else {
+                              setSelectedMonIds(new Set(filteredMonitoringRecords.map((r) => r.id)))
+                            }
+                          }}
+                          className="rounded border-slate-300"
+                        />
+                      </th>
+                      <th className="px-5 py-3 font-medium">Driver</th>
+                      <th className="px-5 py-3 font-medium">Date</th>
+                      <th className="px-5 py-3 font-medium">Status</th>
+                      <th className="px-5 py-3 font-medium">Reason</th>
+                      <th className="px-5 py-3 font-medium">Remarks</th>
+                      <th className="px-5 py-3 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMonitoringRecords.map((rec) => (
+                      <tr key={rec.id} className="border-b border-slate-50 last:border-0 align-top">
+                        <td className="px-5 py-3.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedMonIds.has(rec.id)}
+                            onChange={() => toggleSelectMon(rec.id)}
+                            className="rounded border-slate-300"
+                          />
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-800">{rec.drivers?.name ?? 'Unknown Driver'}</td>
+                        {editingMonId === rec.id ? (
+                          <>
+                            <td className="px-5 py-3.5">
+                              <input type="date" value={editingMonDate} onChange={(e) => setEditingMonDate(e.target.value)} className={inputClass} />
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <select
+                                value={editingMonStatus}
+                                onChange={(e) => {
+                                  setEditingMonStatus(e.target.value)
+                                  if (e.target.value !== 'Not Using') setEditingMonReasonId('')
+                                }}
+                                className={inputClass}
+                              >
+                                <option value="Using">Using</option>
+                                <option value="Not Using">Not Using</option>
+                                <option value="No Delivery">No Delivery</option>
                               </select>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              {editingMonStatus === 'Not Using' ? (
+                                <select value={editingMonReasonId} onChange={(e) => setEditingMonReasonId(e.target.value)} className={inputClass}>
+                                  <option value="">Select Reason</option>
+                                  {reasons.filter((r) => r.is_active).map((r) => (
+                                    <option key={r.id} value={r.id}>{r.reason}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <input type="text" value={editingMonRemarks} onChange={(e) => setEditingMonRemarks(e.target.value)} className={`w-full ${inputClass}`} />
+                            </td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => saveMonitoringEdit(rec.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
+                                <button onClick={() => setEditingMonId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-5 py-3.5 text-slate-500">{rec.monitoring_date}</td>
+                            <td className="px-5 py-3.5">
+                              <Badge tone={statusBadgeTone(rec.status)}>{rec.status}</Badge>
+                            </td>
+                            <td className="px-5 py-3.5 text-slate-500">{rec.driver_non_usage_reasons?.reason ?? '—'}</td>
+                            <td className="px-5 py-3.5 text-slate-500 italic">{rec.remarks ?? '—'}</td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => startEditingMonitoring(rec)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
+                                <button onClick={() => setConfirmDeleteMonId(rec.id)} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </CardBody>
+            </Card>
+          </section>
+        )}
+
+        {/* MANAGEMENT TAB */}
+        {activeTab === 'management' && (
+          <section>
+            <div className="space-y-4">
+              {/* DEPOTS */}
+              <Collapsible title={`Depots (${depots.length})`}>
+                <CardBody>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={newDepotName}
+                      onChange={(e) => setNewDepotName(e.target.value)}
+                      placeholder="e.g. Cebu Depot"
+                      className={`flex-1 min-w-0 ${inputClass}`}
+                    />
+                    <Button onClick={handleAddDepot} disabled={depotLoading}>
+                      {depotLoading ? 'Adding…' : 'Add Depot'}
+                    </Button>
+                  </div>
+                  <input
+                    type="text"
+                    value={depotSearch}
+                    onChange={(e) => setDepotSearch(e.target.value)}
+                    placeholder="Search depots…"
+                    className={`w-full ${inputClass}`}
+                  />
+                </CardBody>
+                <CardBody className="!p-0">
+                  <Table>
+                    <TableHead columns={['Depot Name', '']} />
+                    <tbody>
+                      {filteredDepots.map((depot) => (
+                        <tr key={depot.id} className="border-b border-slate-50 last:border-0">
+                          <td className="px-5 py-3.5 text-slate-800">
+                            {editingDepotId === depot.id ? (
+                              <input type="text" value={editingDepotName} onChange={(e) => setEditingDepotName(e.target.value)} className={`w-full ${inputClass}`} />
+                            ) : depot.name}
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            {editingDepotId === depot.id ? (
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => saveDepotEdit(depot.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
+                                <button onClick={() => setEditingDepotId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
+                              </div>
                             ) : (
-                              <span className="text-slate-400">—</span>
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => startEditingDepot(depot)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
+                                <button onClick={() => setConfirmArchive({ type: 'depot', id: depot.id, name: depot.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
+                              </div>
                             )}
                           </td>
-                          <td className="px-5 py-3.5">
-                            <input type="text" value={editingMonRemarks} onChange={(e) => setEditingMonRemarks(e.target.value)} className={`w-full ${inputClass}`} />
-                          </td>
-                          <td className="px-5 py-3.5 text-right">
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => saveMonitoringEdit(rec.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
-                              <button onClick={() => setEditingMonId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
-                            </div>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-5 py-3.5 text-slate-500">{rec.monitoring_date}</td>
-                          <td className="px-5 py-3.5">
-                            <Badge tone={statusBadgeTone(rec.status)}>{rec.status}</Badge>
-                          </td>
-                          <td className="px-5 py-3.5 text-slate-500">{rec.driver_non_usage_reasons?.reason ?? '—'}</td>
-                          <td className="px-5 py-3.5 text-slate-500 italic">{rec.remarks ?? '—'}</td>
-                          <td className="px-5 py-3.5 text-right">
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => startEditingMonitoring(rec)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
-                              <button onClick={() => setConfirmDeleteMonId(rec.id)} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
-                            </div>
-                          </td>
-                        </>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+              </Collapsible>
+
+              {/* TRUCKERS */}
+              <Collapsible
+                title={`Truckers (${truckers.length})`}
+                action={
+                  <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer transition">
+                    <Upload size={14} />
+                    {truckerUploading ? 'Uploading…' : 'Upload Excel'}
+                    <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleTruckerFileUpload} />
+                  </label>
+                }
+              >
+                <CardBody>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={newTruckerName}
+                      onChange={(e) => setNewTruckerName(e.target.value)}
+                      placeholder="Trucker Name"
+                      className={`flex-1 ${inputClass}`}
+                    />
+                    <select value={newTruckerDepotId} onChange={(e) => setNewTruckerDepotId(e.target.value)} className={inputClass}>
+                      <option value="">Select Depot</option>
+                      {depots.map((depot) => <option key={depot.id} value={depot.id}>{depot.name}</option>)}
+                    </select>
+                    <Button onClick={handleAddTrucker} disabled={truckerLoading}>
+                      {truckerLoading ? 'Adding…' : 'Add Trucker'}
+                    </Button>
+                  </div>
+                  <input
+                    type="text"
+                    value={truckerSearch}
+                    onChange={(e) => setTruckerSearch(e.target.value)}
+                    placeholder="Search truckers or depots…"
+                    className={`w-full ${inputClass}`}
+                  />
+                  {truckerUploadResult && (
+                    <div className="pt-3 text-xs">
+                      {truckerUploadResult.created.length > 0 && (
+                        <p className="text-emerald-600">✓ {truckerUploadResult.created.length} trucker(s) added</p>
                       )}
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </CardBody>
-          </Card>
-        </section>
+                      {truckerUploadResult.existing.length > 0 && (
+                        <p className="text-blue-600">✓ {truckerUploadResult.existing.length} already existed and were reused</p>
+                      )}
+                      {truckerUploadResult.skipped.length > 0 && (
+                        <div className="text-rose-600 mt-1">
+                          <p>{truckerUploadResult.skipped.length} skipped:</p>
+                          <ul className="list-disc list-inside">
+                            {truckerUploadResult.skipped.map((s, i) => (
+                              <li key={i}>{s.name}{s.depot_name ? ` (${s.depot_name})` : ''} — {s.reason}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardBody>
+                <CardBody className="!p-0">
+                  <Table>
+                    <TableHead columns={['Trucker Name', 'Depot', '']} />
+                    <tbody>
+                      {filteredTruckers.map((trucker) => (
+                        <tr key={trucker.id} className="border-b border-slate-50 last:border-0">
+                          <td className="px-5 py-3.5 text-slate-800">
+                            {editingTruckerId === trucker.id ? (
+                              <input type="text" value={editingTruckerName} onChange={(e) => setEditingTruckerName(e.target.value)} className={`w-full ${inputClass}`} />
+                            ) : trucker.name}
+                          </td>
+                          <td className="px-5 py-3.5 text-slate-500">
+                            {editingTruckerId === trucker.id ? (
+                              <select value={editingTruckerDepotId} onChange={(e) => setEditingTruckerDepotId(e.target.value)} className={inputClass}>
+                                {depots.map((depot) => <option key={depot.id} value={depot.id}>{depot.name}</option>)}
+                              </select>
+                            ) : (trucker.depots?.name ?? 'Unknown Depot')}
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            {editingTruckerId === trucker.id ? (
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => saveTruckerEdit(trucker.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
+                                <button onClick={() => setEditingTruckerId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => startEditingTrucker(trucker)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
+                                <button onClick={() => setConfirmArchive({ type: 'trucker', id: trucker.id, name: trucker.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+              </Collapsible>
 
-        {/* MANAGEMENT — collapsible */}
-        <section>
-          <h2 className="text-base font-semibold text-slate-800 mb-3">Management</h2>
-
-          <div className="space-y-4">
-            {/* DEPOTS */}
-            <Collapsible title={`Depots (${depots.length})`}>
-              <CardBody>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={newDepotName}
-                    onChange={(e) => setNewDepotName(e.target.value)}
-                    placeholder="e.g. Cebu Depot"
-                    className={`flex-1 min-w-0 ${inputClass}`}
-                  />
-                  <Button onClick={handleAddDepot} disabled={depotLoading}>
-                    {depotLoading ? 'Adding…' : 'Add Depot'}
-                  </Button>
-                </div>
-                <input
-                  type="text"
-                  value={depotSearch}
-                  onChange={(e) => setDepotSearch(e.target.value)}
-                  placeholder="Search depots…"
-                  className={`w-full ${inputClass}`}
-                />
-              </CardBody>
-              <CardBody className="!p-0">
-                <Table>
-                  <TableHead columns={['Depot Name', '']} />
-                  <tbody>
-                    {filteredDepots.map((depot) => (
-                      <tr key={depot.id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-5 py-3.5 text-slate-800">
-                          {editingDepotId === depot.id ? (
-                            <input type="text" value={editingDepotName} onChange={(e) => setEditingDepotName(e.target.value)} className={`w-full ${inputClass}`} />
-                          ) : depot.name}
-                        </td>
-                        <td className="px-5 py-3.5 text-right">
-                          {editingDepotId === depot.id ? (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => saveDepotEdit(depot.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
-                              <button onClick={() => setEditingDepotId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => startEditingDepot(depot)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
-                              <button onClick={() => setConfirmArchive({ type: 'depot', id: depot.id, name: depot.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </CardBody>
-            </Collapsible>
-
-            {/* TRUCKERS */}
-            <Collapsible
-              title={`Truckers (${truckers.length})`}
-              action={
-                <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer transition">
-                  <Upload size={14} />
-                  {truckerUploading ? 'Uploading…' : 'Upload Excel'}
-                  <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleTruckerFileUpload} />
-                </label>
-              }
-            >
-              <CardBody>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={newTruckerName}
-                    onChange={(e) => setNewTruckerName(e.target.value)}
-                    placeholder="Trucker Name"
-                    className={`flex-1 ${inputClass}`}
-                  />
-                  <select value={newTruckerDepotId} onChange={(e) => setNewTruckerDepotId(e.target.value)} className={inputClass}>
-                    <option value="">Select Depot</option>
-                    {depots.map((depot) => <option key={depot.id} value={depot.id}>{depot.name}</option>)}
-                  </select>
-                  <Button onClick={handleAddTrucker} disabled={truckerLoading}>
-                    {truckerLoading ? 'Adding…' : 'Add Trucker'}
-                  </Button>
-                </div>
-                <input
-                  type="text"
-                  value={truckerSearch}
-                  onChange={(e) => setTruckerSearch(e.target.value)}
-                  placeholder="Search truckers or depots…"
-                  className={`w-full ${inputClass}`}
-                />
-                {truckerUploadResult && (
-                  <div className="pt-3 text-xs">
-                    {truckerUploadResult.created.length > 0 && (
-                      <p className="text-emerald-600">✓ {truckerUploadResult.created.length} trucker(s) added</p>
-                    )}
-                    {truckerUploadResult.existing.length > 0 && (
-                      <p className="text-blue-600">✓ {truckerUploadResult.existing.length} already existed and were reused</p>
-                    )}
-                    {truckerUploadResult.skipped.length > 0 && (
-                      <div className="text-rose-600 mt-1">
-                        <p>{truckerUploadResult.skipped.length} skipped:</p>
-                        <ul className="list-disc list-inside">
-                          {truckerUploadResult.skipped.map((s, i) => (
-                            <li key={i}>{s.name}{s.depot_name ? ` (${s.depot_name})` : ''} — {s.reason}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+              {/* DRIVERS */}
+              <Collapsible
+                title={`Drivers (${drivers.length})`}
+                action={
+                  <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer transition">
+                    <Upload size={14} />
+                    {driverUploading ? 'Uploading…' : 'Upload Excel'}
+                    <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleDriverFileUpload} />
+                  </label>
+                }
+              >
+                <CardBody>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={newDriverName}
+                      onChange={(e) => setNewDriverName(e.target.value)}
+                      placeholder="Driver Name"
+                      className={`flex-1 ${inputClass}`}
+                    />
+                    <select value={newDriverTruckerId} onChange={(e) => setNewDriverTruckerId(e.target.value)} className={inputClass}>
+                      <option value="">Select Trucker</option>
+                      {truckers.map((trucker) => (
+                        <option key={trucker.id} value={trucker.id}>{trucker.name} ({trucker.depots?.name ?? 'Unknown Depot'})</option>
+                      ))}
+                    </select>
+                    <Button onClick={handleAddDriver} disabled={driverLoading}>
+                      {driverLoading ? 'Adding…' : 'Add Driver'}
+                    </Button>
                   </div>
-                )}
-              </CardBody>
-              <CardBody className="!p-0">
-                <Table>
-                  <TableHead columns={['Trucker Name', 'Depot', '']} />
-                  <tbody>
-                    {filteredTruckers.map((trucker) => (
-                      <tr key={trucker.id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-5 py-3.5 text-slate-800">
-                          {editingTruckerId === trucker.id ? (
-                            <input type="text" value={editingTruckerName} onChange={(e) => setEditingTruckerName(e.target.value)} className={`w-full ${inputClass}`} />
-                          ) : trucker.name}
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-500">
-                          {editingTruckerId === trucker.id ? (
-                            <select value={editingTruckerDepotId} onChange={(e) => setEditingTruckerDepotId(e.target.value)} className={inputClass}>
-                              {depots.map((depot) => <option key={depot.id} value={depot.id}>{depot.name}</option>)}
-                            </select>
-                          ) : (trucker.depots?.name ?? 'Unknown Depot')}
-                        </td>
-                        <td className="px-5 py-3.5 text-right">
-                          {editingTruckerId === trucker.id ? (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => saveTruckerEdit(trucker.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
-                              <button onClick={() => setEditingTruckerId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => startEditingTrucker(trucker)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
-                              <button onClick={() => setConfirmArchive({ type: 'trucker', id: trucker.id, name: trucker.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </CardBody>
-            </Collapsible>
-
-            {/* DRIVERS */}
-            <Collapsible
-              title={`Drivers (${drivers.length})`}
-              action={
-                <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer transition">
-                  <Upload size={14} />
-                  {driverUploading ? 'Uploading…' : 'Upload Excel'}
-                  <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleDriverFileUpload} />
-                </label>
-              }
-            >
-              <CardBody>
-                <div className="flex gap-2 mb-3">
                   <input
                     type="text"
-                    value={newDriverName}
-                    onChange={(e) => setNewDriverName(e.target.value)}
-                    placeholder="Driver Name"
-                    className={`flex-1 ${inputClass}`}
+                    value={driverSearch}
+                    onChange={(e) => setDriverSearch(e.target.value)}
+                    placeholder="Search drivers, truckers, or depots…"
+                    className={`w-full ${inputClass}`}
                   />
-                  <select value={newDriverTruckerId} onChange={(e) => setNewDriverTruckerId(e.target.value)} className={inputClass}>
-                    <option value="">Select Trucker</option>
-                    {truckers.map((trucker) => (
-                      <option key={trucker.id} value={trucker.id}>{trucker.name} ({trucker.depots?.name ?? 'Unknown Depot'})</option>
-                    ))}
-                  </select>
-                  <Button onClick={handleAddDriver} disabled={driverLoading}>
-                    {driverLoading ? 'Adding…' : 'Add Driver'}
-                  </Button>
-                </div>
-                <input
-                  type="text"
-                  value={driverSearch}
-                  onChange={(e) => setDriverSearch(e.target.value)}
-                  placeholder="Search drivers, truckers, or depots…"
-                  className={`w-full ${inputClass}`}
-                />
-                {driverUploadResult && (
-                  <div className="pt-3 text-xs">
-                    {driverUploadResult.created.length > 0 && (
-                      <p className="text-emerald-600">✓ {driverUploadResult.created.length} driver(s) added</p>
-                    )}
-                    {driverUploadResult.existing.length > 0 && (
-                      <p className="text-blue-600">✓ {driverUploadResult.existing.length} already existed and were reused</p>
-                    )}
-                    {driverUploadResult.skipped.length > 0 && (
-                      <div className="text-rose-600 mt-1">
-                        <p>{driverUploadResult.skipped.length} skipped:</p>
-                        <ul className="list-disc list-inside">
-                          {driverUploadResult.skipped.map((s, i) => <li key={i}>{s.name} — {s.reason}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardBody>
-              <CardBody className="!p-0">
-                <Table>
-                  <TableHead columns={['Driver Name', 'Trucker', 'Depot', '']} />
-                  <tbody>
-                    {filteredDrivers.map((driver) => (
-                      <tr key={driver.id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-5 py-3.5 text-slate-800">
-                          {editingDriverId === driver.id ? (
-                            <input type="text" value={editingDriverName} onChange={(e) => setEditingDriverName(e.target.value)} className={`w-full ${inputClass}`} />
-                          ) : driver.name}
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-500">
-                          {editingDriverId === driver.id ? (
-                            <select value={editingDriverTruckerId} onChange={(e) => setEditingDriverTruckerId(e.target.value)} className={inputClass}>
-                              {truckers.map((trucker) => (
-                                <option key={trucker.id} value={trucker.id}>{trucker.name} ({trucker.depots?.name ?? 'Unknown Depot'})</option>
-                              ))}
-                            </select>
-                          ) : (driver.truckers?.name ?? 'Unknown Trucker')}
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-500">{driver.truckers?.depots?.name ?? '—'}</td>
-                        <td className="px-5 py-3.5 text-right">
-                          {editingDriverId === driver.id ? (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => saveDriverEdit(driver.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
-                              <button onClick={() => setEditingDriverId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => startEditingDriver(driver)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
-                              <button onClick={() => setConfirmArchive({ type: 'driver', id: driver.id, name: driver.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </CardBody>
-            </Collapsible>
-          </div>
-        </section>
+                  {driverUploadResult && (
+                    <div className="pt-3 text-xs">
+                      {driverUploadResult.created.length > 0 && (
+                        <p className="text-emerald-600">✓ {driverUploadResult.created.length} driver(s) added</p>
+                      )}
+                      {driverUploadResult.existing.length > 0 && (
+                        <p className="text-blue-600">✓ {driverUploadResult.existing.length} already existed and were reused</p>
+                      )}
+                      {driverUploadResult.skipped.length > 0 && (
+                        <div className="text-rose-600 mt-1">
+                          <p>{driverUploadResult.skipped.length} skipped:</p>
+                          <ul className="list-disc list-inside">
+                            {driverUploadResult.skipped.map((s, i) => <li key={i}>{s.name} — {s.reason}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardBody>
+                <CardBody className="!p-0">
+                  <Table>
+                    <TableHead columns={['Driver Name', 'Trucker', 'Depot', '']} />
+                    <tbody>
+                      {filteredDrivers.map((driver) => (
+                        <tr key={driver.id} className="border-b border-slate-50 last:border-0">
+                          <td className="px-5 py-3.5 text-slate-800">
+                            {editingDriverId === driver.id ? (
+                              <input type="text" value={editingDriverName} onChange={(e) => setEditingDriverName(e.target.value)} className={`w-full ${inputClass}`} />
+                            ) : driver.name}
+                          </td>
+                          <td className="px-5 py-3.5 text-slate-500">
+                            {editingDriverId === driver.id ? (
+                              <select value={editingDriverTruckerId} onChange={(e) => setEditingDriverTruckerId(e.target.value)} className={inputClass}>
+                                {truckers.map((trucker) => (
+                                  <option key={trucker.id} value={trucker.id}>{trucker.name} ({trucker.depots?.name ?? 'Unknown Depot'})</option>
+                                ))}
+                              </select>
+                            ) : (driver.truckers?.name ?? 'Unknown Trucker')}
+                          </td>
+                          <td className="px-5 py-3.5 text-slate-500">{driver.truckers?.depots?.name ?? '—'}</td>
+                          <td className="px-5 py-3.5 text-right">
+                            {editingDriverId === driver.id ? (
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => saveDriverEdit(driver.id)} className="text-emerald-600 hover:text-emerald-700 p-1"><Check size={17} /></button>
+                                <button onClick={() => setEditingDriverId(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={17} /></button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => startEditingDriver(driver)} className="text-slate-400 hover:text-blue-600 p-1"><Pencil size={15} /></button>
+                                <button onClick={() => setConfirmArchive({ type: 'driver', id: driver.id, name: driver.name })} className="text-slate-400 hover:text-rose-600 p-1"><Archive size={15} /></button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+              </Collapsible>
+            </div>
+          </section>
+        )}
 
         <ConfirmDialog
           open={confirmArchive !== null}
