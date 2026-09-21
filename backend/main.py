@@ -1009,15 +1009,15 @@ def get_monitoring_by_depot_date(depot_id: str, monitoring_date: str):
         for m in monitoring_result.data:
             existing_records[m["driver_id"]] = m
 
-    rows = []
+        rows = []
     for d in depot_drivers:
         existing = existing_records.get(d["id"])
         if existing:
             status = existing["status"]
             delivery = "No" if status == "No Delivery" else "Yes"
         else:
-            status = "Using"
-            delivery = "Yes"
+            status = "No Delivery"
+            delivery = "No"
         rows.append({
             "driver_id": d["id"],
             "driver_name": d["name"],
