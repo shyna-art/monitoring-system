@@ -1211,3 +1211,66 @@ def bulk_delete_monitoring(payload: BulkDeleteMonitoring):
         return {"deleted": 0}
     supabase.table("driver_monitoring").delete().in_("id", payload.ids).execute()
     return {"deleted": len(payload.ids)}
+
+    @app.get("/api/analytics/non-usage-reasons")
+def non_usage_reasons_analytics(start_date: str = None, end_date: str = None):
+    query = supabase.table("driver_monitoring").select(
+        "reason_id, driver_non_usage_reasons(reason)"
+    ).eq("status", "Not Using")
+    if start_date:
+        query = query.gte("monitoring_date", start_date)
+    if end_date:
+        query = query.lte("monitoring_date", end_date)
+    records = query.execute().data
+
+    counts = {}
+    for r in records:
+        reason_name = r["driver_non_usage_reasons"]["reason"] if r.get("driver_non_usage_reasons") else "No reason given"
+        counts[reason_name] = counts.get(reason_name, 0) + 1
+
+    total = sum(counts.values())
+    breakdown = sorted(
+        [{"reason": k, "count": v, "percentage": round(v / total * 100, 1) if total > 0 else 0}
+         for k, v in counts.items()],
+        key=lambda x: x["count"], reverse=True
+    )
+
+    return {"total_not_using_records": total, "breakdown": breakdown}
+
+
+@app.get("/api/analytics/repeat-offenders")
+def repeat_offenders(min_count: int = 3, start_date: str = None, end_date: str = None):
+    query = supabase.table("driver_monitoring").select(
+        "driver_id, monitoring_date, remarks, drivers(name, truckers(name, depots(name))), driver_non_usage_reasons(reason)"
+    ).eq("status", "Not Using")
+    if start_date:
+        query = query.gte("monitoring_date", start_date)
+    if end_date:
+        query = query.lte("monitoring_date", end_date)
+    records = query.order("monitoring_date", desc=True).execute().data
+
+    grouped = {}
+    for r in records:
+        did = r["driver_id"]
+        if did not in grouped:
+            trucker = r["drivers"]["truckers"] if r.get("drivers") else None
+            grouped[did] = {
+                "driver_id": did,
+                "driver_name": r["drivers"]["name"] if r.get("drivers") else "Unknown",
+                "trucker_name": trucker["name"] if trucker else None,
+                "depot_name": trucker["depots"]["name"] if trucker and trucker.get("depots") else None,
+                "count": 0,
+                "records": [],
+            }
+        grouped[did]["count"] += 1
+        grouped[did]["records"].append({
+            "date": r["monitoring_date"],
+            "reason": r["driver_non_usage_reasons"]["reason"] if r.get("driver_non_usage_reasons") else None,
+            "remarks": r.get("remarks"),
+        })
+
+    offenders = sorted(
+        [g for g in grouped.values() if g["count"] >= min_count],
+        key=lambda x: x["count"], reverse=True
+    )
+    return {"offenders": offenders, "min_count": min_count}
