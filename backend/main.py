@@ -1212,7 +1212,7 @@ def bulk_delete_monitoring(payload: BulkDeleteMonitoring):
     supabase.table("driver_monitoring").delete().in_("id", payload.ids).execute()
     return {"deleted": len(payload.ids)}
 
-    @app.get("/api/analytics/non-usage-reasons")
+@app.get("/api/analytics/non-usage-reasons")
 def non_usage_reasons_analytics(start_date: str = None, end_date: str = None):
     query = supabase.table("driver_monitoring").select(
         "reason_id, driver_non_usage_reasons(reason)"
